@@ -1,18 +1,51 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
- <meta charset="utf-8"/>
- <title>Passing Player Recommender</title>
- <link rel="stylesheet" href="/static/styles.css">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Passing Player Recommender</title>
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
+
 <body>
- <div class="wrap">
- <h1>Passing Player Recommender</h1>
- <input id="search" placeholder="Search player..."/>
- <div id="suggestions"></div>
- <button id="go">Recommend</button>
- <div id="results"></div>
- </div>
- <script src="/static/app.js"></script>
+  <div class="wrap">
+    <header class="header">
+      <div>
+        <h1>Passing Player Recommender</h1>
+        <p class="sub">Find players with similar passing profiles, plus why they’re similar.</p>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="controls">
+        <div class="search-block">
+          <label class="label" for="search">Player</label>
+          <input id="search" placeholder="Start typing a player name..." autocomplete="off"/>
+          <div id="suggestions" class="suggestions"></div>
+        </div>
+
+        <div class="opts">
+          <div class="opt">
+            <label class="label" for="top_n">Top N</label>
+            <input id="top_n" type="number" min="1" max="50" value="10"/>
+          </div>
+
+          <div class="opt">
+            <label class="label" for="diff_topk">Differences</label>
+            <input id="diff_topk" type="number" min="1" max="25" value="8"/>
+          </div>
+
+          <button id="go" class="btn">Recommend</button>
+        </div>
+      </div>
+
+      <div id="selected" class="selected hidden"></div>
+      <div id="status" class="status hidden"></div>
+    </section>
+
+    <main id="results" class="results"></main>
+  </div>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>

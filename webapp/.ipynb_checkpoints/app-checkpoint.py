@@ -84,6 +84,31 @@ def recommend():
         conn = get_conn()
         try:
             with conn.cursor() as cur:
+                # --- Pull feature name list (ordered) from model_version (jsonb)
+                cur.execute(
+                    "SELECT feats FROM model_version WHERE model_version = %s",
+                    (MODEL_VERSION,),
+                )
+                row = cur.fetchone()
+                if not row or row[0] is None:
+                    return jsonify({"error": "Model version feats not found"}), 500
+                feat_names = row[0]  # list[str] (jsonb)
+
+                # --- Source player metadata (for similarity section)
+                cur.execute(
+                    """
+                    SELECT role_id, role_name, player, player_position
+                    FROM player
+                    WHERE model_version=%s AND player_key=%s AND dataset=%s
+                    """,
+                    (MODEL_VERSION, player_key, dataset),
+                )
+                src_meta = cur.fetchone()
+                if not src_meta:
+                    return jsonify({"error": "Source player not found"}), 404
+                src_role_id, src_role_name, src_player_name, src_pos = src_meta
+
+                # --- Neighbours
                 cur.execute(
                     """
                     SELECT
@@ -91,6 +116,7 @@ def recommend():
                         n.dst_dataset,
                         n.similarity,
                         p.player,
+                        p.role_id,
                         p.role_name,
                         p.player_position
                     FROM player_neighbour n
@@ -101,15 +127,25 @@ def recommend():
                     WHERE n.model_version = %s
                       AND n.src_player_key = %s
                       AND n.src_dataset = %s
+                      AND NOT (n.dst_player_key = n.src_player_key AND n.dst_dataset = n.src_dataset)
                     ORDER BY n.rank
                     LIMIT %s
                     """,
                     (MODEL_VERSION, player_key, dataset, top_n),
                 )
+
                 neigh = cur.fetchall()
                 if not neigh:
-                    return jsonify({"results": []})
+                    return jsonify({"results": [], "source": {
+                        "player_key": player_key,
+                        "dataset": dataset,
+                        "player": src_player_name,
+                        "player_position": src_pos,
+                        "role_id": int(src_role_id),
+                        "role_name": src_role_name,
+                    }})
 
+                # --- Source features
                 cur.execute(
                     """
                     SELECT features
@@ -121,8 +157,9 @@ def recommend():
                 src_row = cur.fetchone()
                 if not src_row:
                     return jsonify({"error": "Source player features not found"}), 404
-                src_feats = src_row[0]
+                src_feats = src_row[0]  # should be list[float]
 
+                # --- Neighbour features (bulk fetch)
                 dst_pairs = [(r[0], r[1]) for r in neigh]
                 dst_rows = [(MODEL_VERSION, k, d) for (k, d) in dst_pairs]
 
@@ -143,39 +180,66 @@ def recommend():
                 dst_feat_rows = cur.fetchall()
                 dst_feat_map = {(k, d): f for (k, d, f) in dst_feat_rows}
 
+                # Safety: feature length alignment
+                if len(src_feats) != len(feat_names):
+                    return jsonify({
+                        "error": f"Feature length mismatch: src_feats={len(src_feats)} feat_names={len(feat_names)}"
+                    }), 500
+
                 results = []
-                for dst_key, dst_dataset, sim, name, role, pos in neigh:
+                for dst_key, dst_dataset, sim, name, dst_role_id, dst_role_name, pos in neigh:
                     dst_feats = dst_feat_map.get((dst_key, dst_dataset))
                     if dst_feats is None:
                         continue
 
+                    # biggest differences by absolute delta (like old notebook)
                     deltas = [
                         (i, float(dst_feats[i]) - float(src_feats[i]))
                         for i in range(len(src_feats))
                     ]
                     deltas_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
 
+                    biggest = [
+                        {"feature": feat_names[i], "delta": d}
+                        for i, d in deltas_sorted
+                    ]
+
+                    # simple “similarities” (replicates old feel without storing role-strength vectors)
+                    shared = []
+                    if int(dst_role_id) == int(src_role_id):
+                        shared.append(src_role_name)
+
                     results.append(
                         {
                             "player_key": dst_key,
                             "dataset": dst_dataset,
                             "player": name,
-                            "role": role,
+                            "role_id": int(dst_role_id),
+                            "role_name": dst_role_name,
                             "player_position": pos,
                             "similarity": float(sim),
-                            "biggest_differences": [
-                                {"feature_idx": i, "delta": d} for i, d in deltas_sorted
-                            ],
+                            "shared_roles": shared,
+                            "biggest_differences": biggest,
                         }
                     )
 
-                return jsonify({"results": results})
+                return jsonify({
+                    "source": {
+                        "player_key": player_key,
+                        "dataset": dataset,
+                        "player": src_player_name,
+                        "player_position": src_pos,
+                        "role_id": int(src_role_id),
+                        "role_name": src_role_name,
+                    },
+                    "results": results,
+                })
+
         finally:
             conn.close()
 
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
-
 
 
 if __name__ == "__main__":
