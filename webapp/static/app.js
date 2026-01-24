@@ -10,6 +10,50 @@ const goBtn = document.getElementById("go");
 let selected = null;
 let debounceTimer = null;
 
+function prettyFeatureName(raw) {
+  const s = String(raw || "");
+
+  // quick humaniser
+  let out = s
+    .replace(/^pct_/, "")
+    .replace(/_per90$|_per_90$/g, " per90")
+    .replace(/_/g, " ");
+
+  // nicer phrases
+  out = out
+    .replace("pass angle mean", "Pass angle (mean)")
+    .replace("pass angle var", "Pass angle (variance)")
+    .replace("ttl passes", "Total passes")
+    .replace("pct passes", "% passes");
+
+  // thirds/channels
+  out = out
+    .replace("def third", "defensive third")
+    .replace("mid third", "middle third")
+    .replace("att third", "attacking third")
+    .replace("centre channel", "central channel")
+    .replace("left channel", "left channel")
+    .replace("right channel", "right channel");
+
+  // title-case-ish
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+function featureUnitHint(name) {
+  const n = String(name || "");
+  if (n.includes("angle")) return "deg";
+  if (n.startsWith("pct_") || n.includes("pct")) return "%/share";
+  if (n.includes("per90") || n.includes("per_90")) return "per90";
+  return "";
+}
+
+function formatDeltaWithHint(feature, delta) {
+  const d = Number(delta);
+  const sign = d >= 0 ? "+" : "";
+  const hint = featureUnitHint(feature);
+  return `${sign}${d.toFixed(3)}${hint ? " " + hint : ""}`;
+}
+
 function showStatus(msg, isError = false) {
   statusBox.textContent = msg;
   statusBox.classList.remove("hidden");
@@ -110,7 +154,6 @@ function formatDelta(delta) {
 function renderResults(payload) {
   const src = payload.source;
   const recs = payload.results || [];
-
   results.innerHTML = "";
 
   if (!recs.length) {
@@ -118,27 +161,31 @@ function renderResults(payload) {
     return;
   }
 
-  recs.forEach((r) => {
-    const sameRole = (r.shared_roles && r.shared_roles.length > 0);
+  recs.forEach((r, idx) => {
     const diffs = r.biggest_differences || [];
+    const shared = (r.shared_roles || []).slice(0, 3);
+
+    const sharedHtml = shared.length
+      ? shared.map(nm => `<span class="chip">Same role: ${escapeHtml(nm)}</span>`).join("")
+      : `<span class="chip">No role overlap</span>`;
 
     const diffsHtml = diffs.map(d => {
       const cls = Number(d.delta) >= 0 ? "delta-pos" : "delta-neg";
       return `
         <div class="item">
-          <span>${escapeHtml(d.feature)}</span>
-          <span class="${cls}">${escapeHtml(formatDelta(d.delta))}</span>
+          <span>${escapeHtml(prettyFeatureName(d.feature))}</span>
+          <span class="${cls}">${escapeHtml(formatDeltaWithHint(d.feature, d.delta))}</span>
         </div>
       `;
     }).join("");
 
-    const sharedHtml = sameRole
-      ? r.shared_roles.map(nm => `<span class="chip">Same role: ${escapeHtml(nm)}</span>`).join("")
-      : `<span class="chip">No role overlap</span>`;
+    const simPct = Math.max(0, Math.min(1, Number(r.similarity || 0))) * 100;
 
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
+      <div class="rank-badge">#${idx + 1}</div>
+
       <div class="card-top">
         <div>
           <h3 class="player-name">${escapeHtml(r.player)}</h3>
@@ -147,29 +194,37 @@ function renderResults(payload) {
         <div class="chip">Similarity: ${Number(r.similarity).toFixed(3)}</div>
       </div>
 
+      <div class="simbar"><div style="width:${simPct.toFixed(1)}%"></div></div>
+
       <div class="meta">
         <span class="chip">${escapeHtml(r.dataset)}</span>
         <span class="chip">${escapeHtml(r.player_position || "—")}</span>
-        ${sameRole ? `<span class="chip">Role match</span>` : ``}
+        ${(shared.length ? `<span class="chip">Role match</span>` : ``)}
       </div>
 
-      <div class="grid2">
-        <div>
-          <div class="section-title">Similarities</div>
-          <div class="meta">${sharedHtml}</div>
-        </div>
+      <details open>
+        <summary>
+          <span class="summary-title">Similarities</span>
+          <span class="kicker">${shared.length ? "Shared role fingerprint" : "No role overlap"}</span>
+        </summary>
+        <div class="meta" style="margin-top:10px;">${sharedHtml}</div>
+      </details>
 
-        <div>
-          <div class="section-title">Biggest differences</div>
-          <div class="list">
-            ${diffsHtml || `<div class="item"><span>No diffs available</span><span></span></div>`}
-          </div>
+      <details>
+        <summary>
+          <span class="summary-title">Biggest differences</span>
+          <span class="kicker">Top ${diffs.length || 0}</span>
+        </summary>
+        <div class="list" style="margin-top:10px;">
+          ${diffsHtml || `<div class="item"><span>No diffs available</span><span></span></div>`}
         </div>
-      </div>
+      </details>
     `;
+
     results.appendChild(card);
   });
 }
+
 
 // Close suggestions when clicking elsewhere
 document.addEventListener("click", (e) => {

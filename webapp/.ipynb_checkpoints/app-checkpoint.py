@@ -4,7 +4,6 @@ from flask import Flask, render_template, request, jsonify
 from psycopg2.extras import execute_values
 import traceback
 
-
 DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
 
@@ -55,13 +54,20 @@ def players():
             )
             rows = cur.fetchall()
 
-        return jsonify([
-            {"player_key": r[0], "dataset": r[1], "player": r[2], "role_name": r[3], "player_position": r[4]}
-            for r in rows
-        ])
+        return jsonify(
+            [
+                {
+                    "player_key": r[0],
+                    "dataset": r[1],
+                    "player": r[2],
+                    "role_name": r[3],
+                    "player_position": r[4],
+                }
+                for r in rows
+            ]
+        )
     finally:
         conn.close()
-
 
 
 @app.post("/api/recommend")
@@ -109,6 +115,9 @@ def recommend():
                 src_role_id, src_role_name, src_player_name, src_pos = src_meta
 
                 # --- Neighbours
+                # Key upgrades:
+                # 1) Exclude exact self (key+dataset)
+                # 2) Exclude same player name across other datasets (Harry Kane -> Harry Kane wc2022 etc)
                 cur.execute(
                     """
                     SELECT
@@ -128,22 +137,30 @@ def recommend():
                       AND n.src_player_key = %s
                       AND n.src_dataset = %s
                       AND NOT (n.dst_player_key = n.src_player_key AND n.dst_dataset = n.src_dataset)
+                      AND LOWER(p.player) <> LOWER(%s)
                     ORDER BY n.rank
                     LIMIT %s
                     """,
-                    (MODEL_VERSION, player_key, dataset, top_n),
+                    (MODEL_VERSION, player_key, dataset, src_player_name, top_n),
                 )
 
                 neigh = cur.fetchall()
+
+                # Return source even if no results
                 if not neigh:
-                    return jsonify({"results": [], "source": {
-                        "player_key": player_key,
-                        "dataset": dataset,
-                        "player": src_player_name,
-                        "player_position": src_pos,
-                        "role_id": int(src_role_id),
-                        "role_name": src_role_name,
-                    }})
+                    return jsonify(
+                        {
+                            "source": {
+                                "player_key": player_key,
+                                "dataset": dataset,
+                                "player": src_player_name,
+                                "player_position": src_pos,
+                                "role_id": int(src_role_id),
+                                "role_name": src_role_name,
+                            },
+                            "results": [],
+                        }
+                    )
 
                 # --- Source features
                 cur.execute(
@@ -157,7 +174,7 @@ def recommend():
                 src_row = cur.fetchone()
                 if not src_row:
                     return jsonify({"error": "Source player features not found"}), 404
-                src_feats = src_row[0]  # should be list[float]
+                src_feats = src_row[0]  # list[float]
 
                 # --- Neighbour features (bulk fetch)
                 dst_pairs = [(r[0], r[1]) for r in neigh]
@@ -182,35 +199,37 @@ def recommend():
 
                 # Safety: feature length alignment
                 if len(src_feats) != len(feat_names):
-                    return jsonify({
-                        "error": f"Feature length mismatch: src_feats={len(src_feats)} feat_names={len(feat_names)}"
-                    }), 500
+                    return jsonify(
+                        {
+                            "error": f"Feature length mismatch: src_feats={len(src_feats)} feat_names={len(feat_names)}"
+                        }
+                    ), 500
 
                 results = []
-                for dst_key, dst_dataset, sim, name, dst_role_id, dst_role_name, pos in neigh:
+
+                # Add ranks to mimic notebook behaviour and make UI nicer
+                for rank, (dst_key, dst_dataset, sim, name, dst_role_id, dst_role_name, pos) in enumerate(neigh, start=1):
                     dst_feats = dst_feat_map.get((dst_key, dst_dataset))
                     if dst_feats is None:
                         continue
 
-                    # biggest differences by absolute delta (like old notebook)
+                    # biggest differences by absolute delta
                     deltas = [
                         (i, float(dst_feats[i]) - float(src_feats[i]))
                         for i in range(len(src_feats))
                     ]
                     deltas_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
 
-                    biggest = [
-                        {"feature": feat_names[i], "delta": d}
-                        for i, d in deltas_sorted
-                    ]
+                    biggest = [{"feature": feat_names[i], "delta": d} for i, d in deltas_sorted]
 
-                    # simple “similarities” (replicates old feel without storing role-strength vectors)
-                    shared = []
+                    # “why similar” chips (simple but effective)
+                    why_similar = []
                     if int(dst_role_id) == int(src_role_id):
-                        shared.append(src_role_name)
+                        why_similar.append(f"Same role: {src_role_name}")
 
                     results.append(
                         {
+                            "rank": rank,
                             "player_key": dst_key,
                             "dataset": dst_dataset,
                             "player": name,
@@ -218,22 +237,24 @@ def recommend():
                             "role_name": dst_role_name,
                             "player_position": pos,
                             "similarity": float(sim),
-                            "shared_roles": shared,
+                            "why_similar": why_similar,
                             "biggest_differences": biggest,
                         }
                     )
 
-                return jsonify({
-                    "source": {
-                        "player_key": player_key,
-                        "dataset": dataset,
-                        "player": src_player_name,
-                        "player_position": src_pos,
-                        "role_id": int(src_role_id),
-                        "role_name": src_role_name,
-                    },
-                    "results": results,
-                })
+                return jsonify(
+                    {
+                        "source": {
+                            "player_key": player_key,
+                            "dataset": dataset,
+                            "player": src_player_name,
+                            "player_position": src_pos,
+                            "role_id": int(src_role_id),
+                            "role_name": src_role_name,
+                        },
+                        "results": results,
+                    }
+                )
 
         finally:
             conn.close()

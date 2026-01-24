@@ -216,3 +216,99 @@ body{
 
 .delta-pos::after{ content: " ▲"; }
 .delta-neg::after{ content: " ▼"; }
+/* --- quality-of-life --- */
+.selected {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.selected b { color: rgba(255,255,255,0.92); }
+.selected span { overflow-wrap: anywhere; }
+
+.results { gap: 14px; }
+
+/* --- recommendation card --- */
+.card { position: relative; }
+
+.rank-badge{
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.simbar{
+  margin-top: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  overflow: hidden;
+}
+
+.simbar > div{
+  height: 100%;
+  width: 0%;
+  background: rgba(255,255,255,0.22);
+}
+
+.card-top { align-items: center; }
+.player-name { margin-left: 72px; } /* leaves space for rank badge */
+
+.role-name {
+  margin-left: 72px;
+  margin-top: 4px;
+}
+
+/* --- collapse blocks --- */
+details {
+  margin-top: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(0,0,0,0.16);
+  padding: 10px 12px;
+}
+
+summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+summary::-webkit-details-marker { display: none; }
+
+.summary-title{
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.72);
+}
+
+.kicker{
+  font-size: 12px;
+  color: rgba(255,255,255,0.70);
+}
+
+/* Make the "two columns" only when it helps */
+.grid2 {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 860px){
+  .grid2 { grid-template-columns: 1fr 1fr; }
+}
+
+/* Better difference rows */
+.item span:last-child{
+  font-variant-numeric: tabular-nums;
+}
