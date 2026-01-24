@@ -18,6 +18,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "4"
 
 import numpy as np
+from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -26,9 +27,8 @@ from football_analytics.analyses.passing.features import passing_feature_columns
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, adjusted_rand_score
-from sklearn.metrics import adjusted_rand_score, adjusted_mutual_info_score
-from sklearn.metrics import pairwise_distances
+from sklearn.metrics import silhouette_score, adjusted_rand_score, adjusted_mutual_info_score
+from sklearn.metrics.pairwise import pairwise_distances  # ✅ FIXED IMPORT
 
 # Optional (only if you want centroid-matching remap)
 from scipy.optimize import linear_sum_assignment
@@ -37,25 +37,20 @@ from scipy.optimize import linear_sum_assignment
 # ----------------------------
 # 0) Load + assemble datasets
 # ----------------------------
-def load_player_level_datasets():
-    paths = {
-        "WC2018": "../../../artifacts/features/player_level_wc2018.parquet",
-        "WC2022": "../../../artifacts/features/player_level_wc2022.parquet",
-        "EURO2024": "../../../artifacts/features/player_level_euro2024.parquet",
-        "EURO2020": "../../../artifacts/features/player_level_euro2020.parquet",
-        "AFCON2023": "../../../artifacts/features/player_level_afcon2023.parquet",
-        "COPA2024": "../../../artifacts/features/player_level_copa2024.parquet",
-    }
+def load_player_level_datasets() -> pd.DataFrame:
+    base = Path.cwd() / "artifacts" / "features"   # /app/artifacts/features on Heroku
+    files = sorted(base.glob("player_level_*.parquet"))
+
+    if not files:
+        raise FileNotFoundError(f"No player_level_*.parquet files found under {base}")
 
     dfs = []
-    for name, p in paths.items():
+    for p in files:
         d = pd.read_parquet(p)
-        d["dataset"] = name
+        d["dataset"] = p.stem.replace("player_level_", "")  # wc2018, euro2024, etc.
         dfs.append(d)
 
-    df = pd.concat(dfs, ignore_index=True)
-    df = df[df["player_position"] != "Goalkeeper"].copy()
-    return df
+    return pd.concat(dfs, ignore_index=True)
 
 
 # ----------------------------
@@ -106,8 +101,13 @@ ARTEFACTY_FEATURES = ["pct_other_pass"]
 
 
 def build_model_df(df_raw: pd.DataFrame, features: list[str]):
+    # If you want to force using all canonical passing cols, keep this:
     passing_cols = passing_feature_columns()
-    keep_cols = ["player_key", "player", "player_position", "dataset"] + passing_cols
+
+    # ✅ safer: keep union of canonical + requested features, but only if present
+    keep_cols = ["player_key", "player", "player_position", "dataset"] + list(dict.fromkeys(passing_cols + features))
+    keep_cols = [c for c in keep_cols if c in df_raw.columns]
+
     df = df_raw[keep_cols].copy()
 
     # Filters
@@ -134,7 +134,13 @@ def build_model_df(df_raw: pd.DataFrame, features: list[str]):
 # ----------------------------------------
 # 2) Scaling + PCA
 # ----------------------------------------
-def fit_pca(X_df: pd.DataFrame, n_components: int | None = None, var_threshold: float = 0.90, random_state: int = 42):
+def fit_pca(
+    X_df: pd.DataFrame,
+    n_components: int | None = None,
+    var_threshold: float = 0.90,
+    random_state: int = 42,
+    make_plots: bool = False,
+):
     scaler = RobustScaler()
     X_scaled = scaler.fit_transform(X_df)
 
@@ -144,13 +150,14 @@ def fit_pca(X_df: pd.DataFrame, n_components: int | None = None, var_threshold: 
         cum = np.cumsum(pca0.explained_variance_ratio_)
         n_components = int(np.argmax(cum >= var_threshold) + 1)
 
-        plt.figure()
-        plt.plot(cum)
-        plt.axhline(var_threshold, linestyle="--")
-        plt.xlabel("Number of PCs")
-        plt.ylabel("Cumulative Explained Variance")
-        plt.title(f"PCA cumulative variance (chosen n={n_components})")
-        plt.show()
+        if make_plots:
+            plt.figure()
+            plt.plot(cum)
+            plt.axhline(var_threshold, linestyle="--")
+            plt.xlabel("Number of PCs")
+            plt.ylabel("Cumulative Explained Variance")
+            plt.title(f"PCA cumulative variance (chosen n={n_components})")
+            plt.show()
 
     pca = PCA(n_components=n_components, random_state=random_state)
     X_pca = pca.fit_transform(X_scaled)
@@ -175,7 +182,14 @@ def kmeans_scan(X_pca_df: pd.DataFrame, Ks: range, random_state: int = 42, n_ini
 # ----------------------------------------
 # 4) Stability scan (subsample ARI)
 # ----------------------------------------
-def kmeans_stability(X_pca_df: pd.DataFrame, k: int, n_runs: int = 25, frac: float = 0.8, seed: int = 42, n_init: int = 20):
+def kmeans_stability(
+    X_pca_df: pd.DataFrame,
+    k: int,
+    n_runs: int = 25,
+    frac: float = 0.8,
+    seed: int = 42,
+    n_init: int = 20,
+):
     rng = np.random.default_rng(seed)
     X_np = X_pca_df.to_numpy()
     n = X_np.shape[0]
@@ -202,8 +216,14 @@ def stability_scan(X_pca_df: pd.DataFrame, Ks: range, **kwargs):
 # ----------------------------------------
 # 5) Fit roles + profiles
 # ----------------------------------------
-def fit_roles(df_model: pd.DataFrame, feats: list[str], X_pca_df: pd.DataFrame, k: int,
-              random_state: int = 42, n_init: int = 50):
+def fit_roles(
+    df_model: pd.DataFrame,
+    feats: list[str],
+    X_pca_df: pd.DataFrame,
+    k: int,
+    random_state: int = 42,
+    n_init: int = 50,
+):
     km = KMeans(n_clusters=k, init="k-means++", n_init=n_init, random_state=random_state)
     labels = km.fit_predict(X_pca_df)
 
@@ -222,7 +242,6 @@ def fit_roles(df_model: pd.DataFrame, feats: list[str], X_pca_df: pd.DataFrame, 
     return df_out_std, km, role_profiles, std
 
 
-
 def print_role_profiles(role_profiles: pd.DataFrame, top_n: int = 10):
     for rid in role_profiles.index:
         s = role_profiles.loc[rid].sort_values(ascending=False)
@@ -239,6 +258,7 @@ def print_role_profiles(role_profiles: pd.DataFrame, top_n: int = 10):
 def _argmax_label(d: dict) -> tuple[str, float]:
     k = max(d, key=d.get)
     return k, float(d[k])
+
 
 def role_family(s: pd.Series) -> str:
     """Coarse archetype (can repeat across clusters)."""
@@ -280,8 +300,6 @@ def role_variant_suffix_human(s: pd.Series) -> str:
     Input `s` is a standardized (z-score) role profile row.
     Output is deterministic + readable.
     """
-
-    # Lane / third bias (only if strong enough)
     from_lane, from_lane_val = _argmax_label({
         "left":   s.get("pct_pass_from_left_channel", 0),
         "central":s.get("pct_pass_from_central_channel", 0),
@@ -298,7 +316,6 @@ def role_variant_suffix_human(s: pd.Series) -> str:
         "high": s.get("pct_pass_from_att_third", 0),
     })
 
-    # Style flags
     switchiness = s.get("pct_pass_left_to_right", 0) + s.get("pct_pass_right_to_left", 0)
     is_switcher = switchiness > 1.2
     is_recycler = s.get("pct_lateral_passes", 0) > 0.7
@@ -314,28 +331,17 @@ def role_variant_suffix_human(s: pd.Series) -> str:
 
     parts = []
 
-    # --- Primary role “location” phrase
-    # Only include lane/third if signal is clear
     loc = []
     if third_val > 0.60:
         loc.append({"deep":"Deep", "mid":"Midfield", "high":"Attacking"}[third])
     if from_lane_val > 0.55:
         loc.append({"left":"Left", "central":"Central", "right":"Right"}[from_lane])
-
-    # if lane is unclear but to_lane is, use to_lane
     if not loc and to_lane_val > 0.55:
         loc.append({"left":"Left", "central":"Central", "right":"Right"}[to_lane])
 
-    # Default if nothing triggers
-    if loc:
-        parts.append(" ".join(loc))
-    else:
-        parts.append("Mixed")
+    parts.append(" ".join(loc) if loc else "Mixed")
 
-    # --- Behaviour phrase (ordered by what reads most like football)
     behaviour = []
-
-    # creative / final third stuff
     if is_threader and is_creator:
         behaviour.append("final-ball creator")
     elif is_threader:
@@ -346,15 +352,13 @@ def role_variant_suffix_human(s: pd.Series) -> str:
     if is_box:
         behaviour.append("box-feeder")
 
-    # build-up / possession stuff
     if is_hub:
-        behaviour.append("tempo hub")
+        behaviour.append("tempo-setter")
     if is_switcher:
         behaviour.append("switcher")
     elif is_recycler:
         behaviour.append("recycler")
 
-    # directness/length
     if is_progressive and is_long:
         behaviour.append("direct progressor")
     elif is_progressive:
@@ -364,36 +368,10 @@ def role_variant_suffix_human(s: pd.Series) -> str:
     elif is_short:
         behaviour.append("short connector")
 
-    # keep it short + readable
     if behaviour:
         parts.append(" / ".join(behaviour[:2]))
 
-        # prettier wording
-    pretty = {
-        "final-ball creator": "final-ball creator",
-        "through-ball specialist": "through-ball specialist",
-        "chance creator": "chance creator",
-        "box-feeder": "box-feeder",
-        "tempo hub": "tempo-setter",
-        "switcher": "switcher",
-        "recycler": "recycler",
-        "direct progressor": "direct progressor",
-        "line-breaker": "line-breaker",
-        "long passer": "long passer",
-        "short connector": "short connector",
-    }
-
-    if len(parts) == 2:
-        # rewrite behaviour words in the second part
-        beh = parts[1]
-        for k, v in pretty.items():
-            beh = beh.replace(k, v)
-        parts[1] = beh
-
-
     return " — ".join(parts)
-
-
 
 
 def unique_role_name_map(role_profiles: pd.DataFrame) -> dict[int, str]:
@@ -407,14 +385,10 @@ def unique_role_name_map(role_profiles: pd.DataFrame) -> dict[int, str]:
         s = role_profiles.loc[rid]
         fam = role_family(s)
         suffix = role_variant_suffix_human(s)
-
-        # If family is "Unlabelled", fold it into something readable
         if fam == "Unlabelled":
-            fam = "Link-up connector"  # default fallback (you can tweak)
-
+            fam = "Link-up connector"
         provisional[rid] = f"{fam} — {suffix}"
 
-    # enforce uniqueness deterministically
     seen = {}
     out = {}
     for rid in sorted(provisional.keys()):
@@ -425,10 +399,7 @@ def unique_role_name_map(role_profiles: pd.DataFrame) -> dict[int, str]:
         else:
             seen[nm] += 1
             out[rid] = f"{nm} #{seen[nm]}"
-
     return out
-
-
 
 
 # ----------------------------------------
@@ -445,24 +416,21 @@ def centroid_remap_feature_space(
     """
     zcols = [f"z__{c}" for c in feats_common]
 
-    # centroids: mean z-scored features per cluster
     ref_centroids = ref_df_roles.groupby("role_id")[zcols].mean().sort_index().to_numpy()
     new_centroids = new_df_roles.groupby("role_id")[zcols].mean().sort_index().to_numpy()
 
     cost = pairwise_distances(new_centroids, ref_centroids, metric="cosine")
     row_ind, col_ind = linear_sum_assignment(cost)
 
-    # row/col indices correspond to sorted role_id order
     ref_ids = np.array(sorted(ref_df_roles["role_id"].unique()))
     new_ids = np.array(sorted(new_df_roles["role_id"].unique()))
 
     return {int(new_ids[r]): int(ref_ids[c]) for r, c in zip(row_ind, col_ind)}
 
 
-
-
 def apply_label_map(labels: np.ndarray, label_map: dict[int, int]) -> np.ndarray:
     return np.array([label_map[int(x)] for x in labels], dtype=int)
+
 
 def remap_df_roles_to_reference_feature_space(
     df_roles: pd.DataFrame,
@@ -476,7 +444,6 @@ def remap_df_roles_to_reference_feature_space(
 
     zcols = [f"z__{c}" for c in feats_common]
 
-    # sanity checks (better error than a mysterious KeyError)
     missing_ref = [c for c in zcols if c not in ref_df_roles.columns]
     missing_new = [c for c in zcols if c not in df_roles.columns]
     if missing_ref or missing_new:
@@ -493,13 +460,11 @@ def remap_df_roles_to_reference_feature_space(
     df_roles = df_roles.copy()
     df_roles["role_id"] = apply_label_map(df_roles["role_id"].to_numpy(), label_map)
 
-    # recompute role_profiles after remap using z-scored features
     X_std_common = df_roles[zcols].copy()
     X_std_common.columns = feats_common
     role_profiles = X_std_common.groupby(df_roles["role_id"])[feats_common].mean().sort_index()
 
     return df_roles, role_profiles, label_map, feats_common
-
 
 
 # ----------------------------------------
@@ -543,7 +508,6 @@ def archetype_overlap(df_a: pd.DataFrame, df_b: pd.DataFrame, top_n: int = 25):
 
     rows = []
     for ra, sa in sets_a.items():
-        # best match in B for this A role
         best_rb, best_j = None, -1
         for rb, sb in sets_b.items():
             j = jaccard(sa, sb)
@@ -574,25 +538,15 @@ def compare_clusterings(df_a: pd.DataFrame, df_b: pd.DataFrame, name: str):
 
 
 # ----------------------------------------
-# 10) Find similar player (your old idea, upgraded)
+# 10) Find similar player
 # ----------------------------------------
 def build_similarity_index(df_roles: pd.DataFrame, X_pca_df: pd.DataFrame, feats: list[str], X_feat_df: pd.DataFrame):
-    """
-    Returns a dict holding matrices + lookup helpers for find_similar_player().
-    - Similarity computed in PCA space (cosine)
-    - Explanations computed from:
-        - role strength vectors
-        - raw feature vectors (standardized optionally)
-    """
-    # PCA-space cosine similarity
     Xp = X_pca_df.to_numpy()
     sim = 1 - pairwise_distances(Xp, metric="cosine")
 
-    # role strength columns (role_0_strength etc.)
     role_strength_cols = [c for c in df_roles.columns if c.startswith("role_") and c.endswith("_strength")]
     R = df_roles[role_strength_cols].to_numpy()
 
-    # feature matrix (original features, same order as feats)
     F = X_feat_df[feats].to_numpy()
 
     name_to_idx = {p: i for i, p in enumerate(df_roles["player"].tolist())}
@@ -615,18 +569,12 @@ def find_similar_player(
     role_topk: int = 3,
     diff_topk: int = 8,
 ):
-    """
-    Output:
-    - similar players by PCA-space cosine similarity
-    - shared strongest roles (by role strength)
-    - biggest feature differences (absolute deltas)
-    """
     if player_name not in index_obj["name_to_idx"]:
         raise ValueError(f"Player not found: {player_name}")
 
     i = index_obj["name_to_idx"][player_name]
     sim = index_obj["sim"][i].copy()
-    sim[i] = -np.inf  # exclude self
+    sim[i] = -np.inf
 
     order = np.argsort(sim)[::-1][:top_n]
     rows = []
@@ -636,16 +584,13 @@ def find_similar_player(
     F = index_obj["F"]
     feats = index_obj["feats"]
 
-    # player's top roles
     i_role_order = np.argsort(R[i])[::-1]
     i_top_roles = [role_cols[j].replace("_strength","").replace("role_","") for j in i_role_order[:role_topk]]
-    i_top_role_names = df_roles.loc[i, "role_name"] if "role_name" in df_roles.columns else str(df_roles.loc[i, "role_id"])
 
     for j in order:
         j_role_order = np.argsort(R[j])[::-1]
         j_top_roles = [role_cols[t].replace("_strength","").replace("role_","") for t in j_role_order[:role_topk]]
 
-        # overlap of top role IDs (as strings)
         shared = sorted(set(i_top_roles) & set(j_top_roles))
         shared_roles = []
         for rid_str in shared:
@@ -653,7 +598,6 @@ def find_similar_player(
             nm = df_roles[df_roles["role_id"] == rid]["role_name"].iloc[0] if "role_name" in df_roles.columns else str(rid)
             shared_roles.append(nm)
 
-        # biggest feature deltas
         deltas = np.abs(F[j] - F[i])
         top_idx = np.argsort(deltas)[::-1][:diff_topk]
         biggest = [f"{feats[t]} ({F[j][t]-F[i][t]:+.3f})" for t in top_idx]
@@ -681,6 +625,7 @@ def run_variant(
     var_threshold=0.90,
     random_state=42,
     ref=None,
+    make_plots: bool = False,
 ):
     drop_features = set(drop_features or [])
     df_model, feats = build_model_df(df_raw, features)
@@ -688,10 +633,9 @@ def run_variant(
 
     X_feat_df = df_model[feats]
     scaler, pca, X_pca_df = fit_pca(
-        X_feat_df, n_components=None, var_threshold=var_threshold, random_state=random_state
+        X_feat_df, n_components=None, var_threshold=var_threshold, random_state=random_state, make_plots=make_plots
     )
 
-    # Fit KMeans in this variant's PCA space
     df_roles, km, role_profiles, std = fit_roles(
         df_model, feats, X_pca_df, k=k_final, random_state=random_state
     )
@@ -699,7 +643,6 @@ def run_variant(
     label_map = None
     feats_common = None
 
-    # ✅ Remap cluster IDs into reference ID space (FEATURE SPACE, not PCA)
     if ref is not None:
         df_roles, role_profiles, label_map, feats_common = remap_df_roles_to_reference_feature_space(
             df_roles=df_roles,
@@ -708,11 +651,9 @@ def run_variant(
             ref_feats=ref["feats"],
         )
 
-    # Name roles AFTER remap (so names are stable in ref label-space)
     role_name_map = unique_role_name_map(role_profiles)
     df_roles["role_name"] = df_roles["role_id"].map(role_name_map)
 
-    # Strengths: must use THIS variant's km + X_pca_df (same PCA space)
     df_roles = add_role_strengths(df_roles, X_pca_df, km)
 
     return {
@@ -723,7 +664,7 @@ def run_variant(
         "feats_common": feats_common,
         "scaler": scaler,
         "pca": pca,
-        "kmeans": km,        # ✅ always the variant km (correct space)
+        "kmeans": km,
         "std": std,
         "X_pca_df": X_pca_df,
         "X_feat_df": X_feat_df,
@@ -731,69 +672,67 @@ def run_variant(
     }
 
 
-
-
 # =========================
-# MAIN RUN
+# MAIN RUN (SAFE)
 # =========================
-df_raw = load_player_level_datasets()
+def main():
+    df_raw = load_player_level_datasets()
 
-Ks = range(2, 21)
-K_FINAL = 12
+    Ks = range(2, 21)
+    K_FINAL = 12
 
-# ---- Fit base
-base = run_variant(df_raw, FEATURES, drop_features=None, k_final=K_FINAL, var_threshold=0.90, ref=None)
-nofoot = run_variant(df_raw, FEATURES, drop_features=FOOTEDNESS_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base)
-noother = run_variant(df_raw, FEATURES, drop_features=ARTEFACTY_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base)
+    base = run_variant(df_raw, FEATURES, drop_features=None, k_final=K_FINAL, var_threshold=0.90, ref=None, make_plots=True)
+    nofoot = run_variant(df_raw, FEATURES, drop_features=FOOTEDNESS_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base, make_plots=False)
+    noother = run_variant(df_raw, FEATURES, drop_features=ARTEFACTY_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base, make_plots=False)
 
-# K selection plots (reuse the PCA from base so scans are consistent)
-scan = kmeans_scan(base["X_pca_df"], Ks)
-print("Top silhouettes:")
-print(scan.sort_values("silhouette", ascending=False).head(10))
+    scan = kmeans_scan(base["X_pca_df"], Ks)
+    print("Top silhouettes:")
+    print(scan.sort_values("silhouette", ascending=False).head(10))
 
-plt.figure(figsize=(10,4))
-plt.plot(scan["k"], scan["inertia"], marker="o", linestyle="--")
-plt.xlabel("k"); plt.ylabel("Inertia (WCSS)"); plt.title("KMeans inertia vs k")
-plt.show()
+    plt.figure(figsize=(10,4))
+    plt.plot(scan["k"], scan["inertia"], marker="o", linestyle="--")
+    plt.xlabel("k"); plt.ylabel("Inertia (WCSS)"); plt.title("KMeans inertia vs k")
+    plt.show()
 
-plt.figure(figsize=(10,4))
-plt.plot(scan["k"], scan["silhouette"], marker="o", linestyle="--")
-plt.xlabel("k"); plt.ylabel("Silhouette"); plt.title("KMeans silhouette vs k")
-plt.show()
+    plt.figure(figsize=(10,4))
+    plt.plot(scan["k"], scan["silhouette"], marker="o", linestyle="--")
+    plt.xlabel("k"); plt.ylabel("Silhouette"); plt.title("KMeans silhouette vs k")
+    plt.show()
 
-stab = stability_scan(base["X_pca_df"], Ks, n_runs=25, frac=0.8, seed=42, n_init=20)
-print("Top stabilities:")
-print(stab.sort_values("stability_ari_mean", ascending=False).head(10))
+    stab = stability_scan(base["X_pca_df"], Ks, n_runs=25, frac=0.8, seed=42, n_init=20)
+    print("Top stabilities:")
+    print(stab.sort_values("stability_ari_mean", ascending=False).head(10))
 
-plt.figure(figsize=(10,4))
-plt.plot(stab["k"], stab["stability_ari_mean"], marker="o", linestyle="--")
-plt.xlabel("k"); plt.ylabel("Mean ARI (stability)"); plt.title("KMeans stability vs k")
-plt.show()
+    plt.figure(figsize=(10,4))
+    plt.plot(stab["k"], stab["stability_ari_mean"], marker="o", linestyle="--")
+    plt.xlabel("k"); plt.ylabel("Mean ARI (stability)"); plt.title("KMeans stability vs k")
+    plt.show()
 
-print(base["df_roles"]["role_id"].value_counts().sort_index())
-print_role_profiles(base["role_profiles"], top_n=10)
-top_archetypes(base["df_roles"], n=10)
+    print(base["df_roles"]["role_id"].value_counts().sort_index())
+    print_role_profiles(base["role_profiles"], top_n=10)
+    top_archetypes(base["df_roles"], n=10)
 
-# Permutation-safe comparisons
-print("Variant comparison (proper, permutation-safe):")
-print(compare_clusterings(base["df_roles"], nofoot["df_roles"], "full vs nofoot"))
-print(compare_clusterings(base["df_roles"], noother["df_roles"], "full vs noother"))
+    print("Variant comparison (proper, permutation-safe):")
+    print(compare_clusterings(base["df_roles"], nofoot["df_roles"], "full vs nofoot"))
+    print(compare_clusterings(base["df_roles"], noother["df_roles"], "full vs noother"))
 
-# Archetype overlap tables
-print("\nArchetype overlap full vs nofoot (top25):")
-print(archetype_overlap(base["df_roles"], nofoot["df_roles"], top_n=25).head(12))
+    print("\nArchetype overlap full vs nofoot (top25):")
+    print(archetype_overlap(base["df_roles"], nofoot["df_roles"], top_n=25).head(12))
 
-print("\nArchetype overlap full vs noother (top25):")
-print(archetype_overlap(base["df_roles"], noother["df_roles"], top_n=25).head(12))
+    print("\nArchetype overlap full vs noother (top25):")
+    print(archetype_overlap(base["df_roles"], noother["df_roles"], top_n=25).head(12))
 
-# ---- Build similarity index + example query
-sim_index = build_similarity_index(
-    df_roles=base["df_roles"],
-    X_pca_df=base["X_pca_df"],
-    feats=base["feats"],
-    X_feat_df=base["X_feat_df"],
-)
+    sim_index = build_similarity_index(
+        df_roles=base["df_roles"],
+        X_pca_df=base["X_pca_df"],
+        feats=base["feats"],
+        X_feat_df=base["X_feat_df"],
+    )
 
-# Example:
-# result = find_similar_player("Cody Mathès Gakpo", base["df_roles"], sim_index, top_n=10)
-# print(result)
+    # Example:
+    # result = find_similar_player("Cody Mathès Gakpo", base["df_roles"], sim_index, top_n=10)
+    # print(result)
+
+
+if __name__ == "__main__":
+    main()
