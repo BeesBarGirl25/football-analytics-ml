@@ -1,32 +1,34 @@
 import os
 import numpy as np
 import psycopg2
-from psycopg2.extras import execute_values
-from football_analytics.analyses.passing.features import passing_feature_columns
+from psycopg2.extras import execute_values, Json
 
-# Import your pipeline functions
+# Import your pipeline functions + FEATURES list (single source of truth)
 from football_analytics.analyses.passing.kmeans_analysis_total import (
     load_player_level_datasets,
     run_variant,
     build_similarity_index,
-    FEATURES,  # ✅ import the list instead of redefining it
+    FEATURES,
 )
 
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
 TOP_N = int(os.getenv("TOP_N", "50"))
 DATABASE_URL = os.environ["DATABASE_URL"]
 
-def main():
-    if FEATURES is None or isinstance(FEATURES, str):
-        raise ValueError(
-            "FEATURES is not defined as a list. "
-            "Import your feature list and set FEATURES = [...]"
-        )
 
-    # 1) Run pipeline
+def main():
+    # 1) Run pipeline (NO PLOTS)
     df_raw = load_player_level_datasets()
 
-    base = run_variant(df_raw, FEATURES, drop_features=None, k_final=12, var_threshold=0.90, ref=None, make_plots=False)
+    base = run_variant(
+        df_raw,
+        FEATURES,
+        drop_features=None,
+        k_final=12,
+        var_threshold=0.90,
+        ref=None,
+        make_plots=False,
+    )
 
     df_roles = base["df_roles"].reset_index(drop=True)
     X_pca_df = base["X_pca_df"].reset_index(drop=True)
@@ -46,17 +48,27 @@ def main():
     try:
         with conn:
             with conn.cursor() as cur:
-                # 2a) Insert model_version
+                # 2a) Upsert model_version (feats is jsonb)
                 cur.execute(
                     """
                     INSERT INTO model_version (model_version, notes, k_final, pca_components, feats)
                     VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (model_version) DO NOTHING
+                    ON CONFLICT (model_version) DO UPDATE
+                    SET notes = EXCLUDED.notes,
+                        k_final = EXCLUDED.k_final,
+                        pca_components = EXCLUDED.pca_components,
+                        feats = EXCLUDED.feats
                     """,
-                    (MODEL_VERSION, "Passing recommender", 12, X_pca_df.shape[1], feats),
+                    (
+                        MODEL_VERSION,
+                        "Passing recommender",
+                        12,
+                        int(X_pca_df.shape[1]),
+                        Json(feats),  # ✅ jsonb
+                    ),
                 )
 
-                # 3) Build rows for bulk insert
+                # 3) Build rows for bulk upserts
                 player_rows = []
                 emb_rows = []
                 feat_rows = []
@@ -77,12 +89,13 @@ def main():
                         )
                     )
 
+                    # ✅ If embedding/features columns are jsonb, wrap with Json(...)
                     emb_rows.append(
                         (
                             MODEL_VERSION,
                             key,
                             dataset,
-                            list(X_pca_df.iloc[i].to_numpy()),
+                            Json(list(X_pca_df.iloc[i].to_numpy())),
                         )
                     )
 
@@ -91,11 +104,11 @@ def main():
                             MODEL_VERSION,
                             key,
                             dataset,
-                            list(X_feat_df.iloc[i].to_numpy()),
+                            Json(list(X_feat_df.iloc[i].to_numpy())),
                         )
                     )
 
-                # 3a) Insert players
+                # 3a) Upsert players
                 execute_values(
                     cur,
                     """
@@ -103,13 +116,15 @@ def main():
                         model_version, player_key, dataset, player, player_position, role_id, role_name
                     ) VALUES %s
                     ON CONFLICT (model_version, player_key, dataset) DO UPDATE
-                    SET role_id = EXCLUDED.role_id,
+                    SET player = EXCLUDED.player,
+                        player_position = EXCLUDED.player_position,
+                        role_id = EXCLUDED.role_id,
                         role_name = EXCLUDED.role_name
                     """,
                     player_rows,
                 )
 
-                # 3b) Insert embeddings
+                # 3b) Upsert embeddings (jsonb)
                 execute_values(
                     cur,
                     """
@@ -121,7 +136,7 @@ def main():
                     emb_rows,
                 )
 
-                # 3c) Insert features
+                # 3c) Upsert features (jsonb)
                 execute_values(
                     cur,
                     """
@@ -133,7 +148,7 @@ def main():
                     feat_rows,
                 )
 
-                # 4) Insert neighbours
+                # 4) Upsert neighbours
                 neigh_rows = []
                 for i, r in df_roles.iterrows():
                     sims = sim[i].copy()
@@ -148,7 +163,7 @@ def main():
                                 r["dataset"],
                                 df_roles.loc[j, "player_key"],
                                 df_roles.loc[j, "dataset"],
-                                rank,
+                                int(rank),
                                 float(sims[j]),
                             )
                         )
@@ -169,7 +184,6 @@ def main():
                     neigh_rows,
                 )
 
-        # conn commits automatically because of "with conn:"
     finally:
         conn.close()
 
