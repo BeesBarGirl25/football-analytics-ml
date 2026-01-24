@@ -225,5 +225,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-ain__":nk) DO UPDATE
- SET dst_player_key = EXCLUDED.dst_player_
