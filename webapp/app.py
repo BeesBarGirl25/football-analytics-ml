@@ -33,31 +33,35 @@ def players():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT player_key, dataset, player, role_name, player_position
+                SELECT DISTINCT ON (LOWER(player))
+                  player_key, dataset, player, role_name, player_position
                 FROM player
                 WHERE model_version = %s
                   AND player ILIKE %s
-                ORDER BY player
+                ORDER BY
+                  LOWER(player),
+                  CASE dataset
+                    WHEN 'copa2024' THEN 6
+                    WHEN 'euro2024' THEN 5
+                    WHEN 'afcon2023' THEN 4
+                    WHEN 'wc2022' THEN 3
+                    WHEN 'euro2020' THEN 2
+                    WHEN 'wc2018' THEN 1
+                    ELSE 0
+                  END DESC
                 LIMIT %s
                 """,
                 (MODEL_VERSION, f"%{q}%", limit),
             )
             rows = cur.fetchall()
 
-        return jsonify(
-            [
-                {
-                    "player_key": r[0],
-                    "dataset": r[1],
-                    "player": r[2],
-                    "role_name": r[3],
-                    "player_position": r[4],
-                }
-                for r in rows
-            ]
-        )
+        return jsonify([
+            {"player_key": r[0], "dataset": r[1], "player": r[2], "role_name": r[3], "player_position": r[4]}
+            for r in rows
+        ])
     finally:
         conn.close()
+
 
 
 @app.post("/api/recommend")
@@ -73,10 +77,9 @@ def recommend():
         if player_key is None or dataset is None:
             return jsonify({"error": "player_key and dataset are required"}), 400
 
-        try:
-            player_key = int(player_key)
-        except (TypeError, ValueError):
-            return jsonify({"error": "player_key must be an integer"}), 400
+        # IMPORTANT: keep as text because DB columns are text
+        player_key = str(player_key).strip()
+        dataset = str(dataset).strip()
 
         conn = get_conn()
         try:
@@ -104,7 +107,6 @@ def recommend():
                     (MODEL_VERSION, player_key, dataset, top_n),
                 )
                 neigh = cur.fetchall()
-
                 if not neigh:
                     return jsonify({"results": []})
 
@@ -121,7 +123,7 @@ def recommend():
                     return jsonify({"error": "Source player features not found"}), 404
                 src_feats = src_row[0]
 
-                dst_pairs = [(int(r[0]), r[1]) for r in neigh]
+                dst_pairs = [(r[0], r[1]) for r in neigh]
                 dst_rows = [(MODEL_VERSION, k, d) for (k, d) in dst_pairs]
 
                 execute_values(
@@ -143,7 +145,7 @@ def recommend():
 
                 results = []
                 for dst_key, dst_dataset, sim, name, role, pos in neigh:
-                    dst_feats = dst_feat_map.get((int(dst_key), dst_dataset))
+                    dst_feats = dst_feat_map.get((dst_key, dst_dataset))
                     if dst_feats is None:
                         continue
 
@@ -155,7 +157,7 @@ def recommend():
 
                     results.append(
                         {
-                            "player_key": int(dst_key),
+                            "player_key": dst_key,
                             "dataset": dst_dataset,
                             "player": name,
                             "role": role,
@@ -172,9 +174,7 @@ def recommend():
             conn.close()
 
     except Exception as e:
-        return jsonify(
-            {"error": str(e), "trace": traceback.format_exc()},
-        ), 500
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
 
