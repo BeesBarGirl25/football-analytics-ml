@@ -2,8 +2,11 @@ import os
 import psycopg2
 from flask import Flask, render_template, request, jsonify
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
 
 app = Flask(__name__)
 
@@ -63,7 +66,7 @@ def recommend():
     top_n = int(payload.get("top_n", 10))
     diff_topk = int(payload.get("diff_topk", 8))
 
-    if not player_key or not dataset:
+    if player_key is None or dataset is None:
         return jsonify({"error": "player_key and dataset are required"}), 400
 
     conn = get_conn()
@@ -73,8 +76,12 @@ def recommend():
             cur.execute(
                 """
                 SELECT
-                    n.dst_player_key, n.dst_dataset, n.similarity,
-                    p.player, p.role_name, p.player_position
+                    n.dst_player_key,
+                    n.dst_dataset,
+                    n.similarity,
+                    p.player,
+                    p.role_name,
+                    p.player_position
                 FROM player_neighbour n
                 JOIN player p
                   ON p.model_version = n.model_version
@@ -90,6 +97,9 @@ def recommend():
             )
             neigh = cur.fetchall()
 
+            if not neigh:
+                return jsonify({"results": []})
+
             # 2) Source features
             cur.execute(
                 """
@@ -104,11 +114,8 @@ def recommend():
                 return jsonify({"error": "Source player features not found"}), 404
             src_feats = src_row[0]
 
-            # 3) Fetch all neighbour features in one query (avoid N+1)
-            # Build list of (player_key, dataset) pairs
+            # 3) Neighbour features (bulk fetch)
             dst_pairs = [(r[0], r[1]) for r in neigh]
-            if not dst_pairs:
-                return jsonify({"results": []})
 
             cur.execute(
                 """
@@ -126,11 +133,13 @@ def recommend():
             for dst_key, dst_dataset, sim, name, role, pos in neigh:
                 dst_feats = dst_feat_map.get((dst_key, dst_dataset))
                 if dst_feats is None:
-                    # Skip if missing features for this neighbour
                     continue
 
                 # Biggest absolute diffs
-                deltas = [(i, float(dst_feats[i]) - float(src_feats[i])) for i in range(len(src_feats))]
+                deltas = [
+                    (i, float(dst_feats[i]) - float(src_feats[i]))
+                    for i in range(len(src_feats))
+                ]
                 deltas_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
 
                 results.append(
@@ -150,5 +159,8 @@ def recommend():
             return jsonify({"results": results})
     finally:
         conn.close()
- n.similarity,
- p.player, p.role_name, p.player_posit
+
+
+if __name__ == "__main__":
+    # local dev only
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=True)
