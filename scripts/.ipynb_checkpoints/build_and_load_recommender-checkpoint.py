@@ -5,7 +5,7 @@ from psycopg2.extras import execute_values
 from football_analytics.analyses.passing.features import passing_feature_columns
 
 # Import your pipeline functions
-from football_analytics.notebooks.analyses.passing.kmeans_analysis_total import (
+from football_analytics.analyses.passing.kmeans_analysis_total import (
     load_player_level_datasets,
     run_variant,
     build_similarity_index,
