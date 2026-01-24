@@ -1,15 +1,17 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "football-analytics-ml"
 version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
-  "pandas>=2.0",
-  "numpy>=1.24",
-  "statsbombpy>=1.13.0",
-  "mplsoccer>=1.6.1"
-]
+description = ""
+authors = ["Molly beesbargirl25@gmail.com"]
+packages = [{ include = "football_analytics" }]
 
+[tool.poetry.dependencies]
+python = ">=3.10"
+pandas = ">=2.0"
+numpy = ">=1.24"
+statsbombpy = ">=1.13.0"
+mplsoccer = ">=1.6.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

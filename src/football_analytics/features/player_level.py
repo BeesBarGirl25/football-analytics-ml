@@ -11,6 +11,7 @@ from football_analytics.geometry.pitch import (
     zone_fractions,
     thirds_from_zones,
     channels_from_zones,
+    ZONE_KEYS_6X6,
 )
 from football_analytics.geometry.shared_cols import compute_team_match_means
 from football_analytics.analyses.passing.features import calculate_passing_features
@@ -42,10 +43,11 @@ def calculate_percentage_occupancies(player_data: pd.DataFrame) -> dict:
 def calculate_percentage_zones(player_data: pd.DataFrame) -> dict:
     df = player_data[player_data["loc_x"].notna() & player_data["loc_y"].notna()]
     if df.empty:
-        return {f"pct_zone_{z}": 0.0 for z in ["dl","dc","dr","ml","mc","mr","al","ac","ar"]}
+        return {f"pct_zone_{z}": 0.0 for z in ZONE_KEYS_6X6}
 
-    zones = zone_fractions(df["loc_x"], df["loc_y"])
-    return {f"pct_zone_{k}": zones[k] for k in zones.keys()}
+    zones = zone_fractions(df["loc_x"], df["loc_y"])  # now 6x6 keys
+    return {f"pct_zone_{k}": zones[k] for k in ZONE_KEYS_6X6}
+
 
 
 def calculate_shot_features(player_data: pd.DataFrame) -> dict:
@@ -76,11 +78,12 @@ def calculate_statistical_features(player_data: pd.DataFrame) -> dict:
     var_y = float(np.var(df["loc_y"]))
 
     zones = zone_fractions(df["loc_x"], df["loc_y"])
-    p = np.array(list(zones.values()))
+    p = np.array([zones[k] for k in ZONE_KEYS_6X6], dtype=float)
     p = p[p > 0]
     entropy = float(-(p * np.log(p)).sum()) if len(p) else 0.0
 
     return {"var_x_loc": var_x, "var_y_loc": var_y, "entropy": entropy}
+
 
 
 def calculate_relative_mean_position(player_data: pd.DataFrame, team_match_means: pd.DataFrame) -> dict:
