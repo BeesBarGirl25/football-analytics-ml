@@ -14,11 +14,16 @@ Assumptions:
 - parquet has: player_key, player, player_position, dataset (+ passing_feature_columns)
 """
 
+from __future__ import annotations
+
 import os
 os.environ["OMP_NUM_THREADS"] = "4"
 
-import numpy as np
+import re
 from pathlib import Path
+from typing import Dict, List
+
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -35,22 +40,73 @@ from scipy.optimize import linear_sum_assignment
 
 
 # ----------------------------
-# 0) Load + assemble datasets
+# 0) Load + assemble datasets (Heroku-safe)
 # ----------------------------
 def load_player_level_datasets() -> pd.DataFrame:
-    base = Path.cwd() / "artifacts" / "features"   # /app/artifacts/features on Heroku
+    """
+    Heroku: expected location is /app/artifacts/features, but we resolve from CWD.
+    """
+    base = Path.cwd() / "artifacts" / "features"
     files = sorted(base.glob("player_level_*.parquet"))
 
     if not files:
         raise FileNotFoundError(f"No player_level_*.parquet files found under {base}")
 
-    dfs = []
+    dfs: List[pd.DataFrame] = []
     for p in files:
         d = pd.read_parquet(p)
         d["dataset"] = p.stem.replace("player_level_", "")  # wc2018, euro2024, etc.
         dfs.append(d)
 
     return pd.concat(dfs, ignore_index=True)
+
+
+# ----------------------------
+# 0b) Collapse multiple tournaments -> ONE row per player_key
+# ----------------------------
+def _mode_or_first(s: pd.Series):
+    s = s.dropna()
+    if s.empty:
+        return None
+    m = s.mode()
+    return m.iloc[0] if not m.empty else s.iloc[0]
+
+
+def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
+    """
+    Produces one row per player_key across all tournaments.
+    No minutes weighting: simple mean across tournaments (per90/pct already normalized).
+    Drops goalkeepers here so they never enter modelling.
+    """
+    passing_cols = passing_feature_columns()
+
+    keep_cols = [c for c in ["player_key", "player", "player_position", "dataset"] + passing_cols if c in df_raw.columns]
+    df = df_raw[keep_cols].copy()
+
+    # ✅ Drop keepers pre-modelling
+    if "player_position" in df.columns:
+        df = df[df["player_position"] != "Goalkeeper"].copy()
+
+    # numeric feature columns
+    num_cols = [c for c in passing_cols if c in df.columns]
+    for c in num_cols:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Backheels: NaN -> 0 (consistent with the rest of your pipeline)
+    if "backheels_per90" in df.columns:
+        df["backheels_per90"] = df["backheels_per90"].fillna(0.0)
+
+    df[num_cols] = df[num_cols].fillna(0.0)
+
+    agg = {c: "mean" for c in num_cols}
+    agg["player"] = _mode_or_first
+    agg["player_position"] = _mode_or_first
+
+    out = df.groupby("player_key", as_index=False).agg(agg)
+
+    # ✅ downstream should treat this as a single profile per player
+    out["dataset"] = "ALL"
+    return out
 
 
 # ----------------------------
@@ -101,10 +157,9 @@ ARTEFACTY_FEATURES = ["pct_other_pass"]
 
 
 def build_model_df(df_raw: pd.DataFrame, features: list[str]):
-    # If you want to force using all canonical passing cols, keep this:
     passing_cols = passing_feature_columns()
 
-    # ✅ safer: keep union of canonical + requested features, but only if present
+    # ✅ union of canonical + requested features, but only keep those present
     keep_cols = ["player_key", "player", "player_position", "dataset"] + list(dict.fromkeys(passing_cols + features))
     keep_cols = [c for c in keep_cols if c in df_raw.columns]
 
@@ -121,11 +176,9 @@ def build_model_df(df_raw: pd.DataFrame, features: list[str]):
 
     feats = [c for c in features if c in df.columns]
 
-    # Backheels: NaN -> 0
     if "backheels_per90" in feats:
         df["backheels_per90"] = df["backheels_per90"].fillna(0.0)
 
-    # Fill remaining NaNs -> 0 (okay for per90/pct features)
     df[feats] = df[feats].fillna(0.0)
 
     return df.reset_index(drop=True), feats
@@ -230,11 +283,9 @@ def fit_roles(
     df_out = df_model.copy()
     df_out["role_id"] = labels
 
-    # Standardize original features for interpretability + centroid matching
     std = StandardScaler()
     X_std = pd.DataFrame(std.fit_transform(df_out[feats]), columns=feats, index=df_out.index)
 
-    # attach standardized features so we can centroid-match in feature space later
     df_out_std = pd.concat([df_out, X_std.add_prefix("z__")], axis=1)
 
     role_profiles = X_std.groupby(df_out["role_id"])[feats].mean().sort_index()
@@ -261,7 +312,6 @@ def _argmax_label(d: dict) -> tuple[str, float]:
 
 
 def role_family(s: pd.Series) -> str:
-    """Coarse archetype (can repeat across clusters)."""
     if s.get("pct_pass_def_to_att", 0) > 2.0 and s.get("pct_long_pass", 0) > 1.0:
         return "Direct progressor / long-ball launcher"
     if s.get("throughballs_per90", 0) > 2.0 and s.get("key_passes_per90", 0) > 0.7:
@@ -290,29 +340,23 @@ def role_family(s: pd.Series) -> str:
         and s.get("pct_short_pass", 0) > 0.8
     ):
         return "Attacking link-up connector"
-
     return "Unlabelled"
 
 
 def role_variant_suffix_human(s: pd.Series) -> str:
-    """
-    Turns role profile fingerprints into short football-y phrases.
-    Input `s` is a standardized (z-score) role profile row.
-    Output is deterministic + readable.
-    """
     from_lane, from_lane_val = _argmax_label({
-        "left":   s.get("pct_pass_from_left_channel", 0),
-        "central":s.get("pct_pass_from_central_channel", 0),
-        "right":  s.get("pct_pass_from_right_channel", 0),
+        "left": s.get("pct_pass_from_left_channel", 0),
+        "central": s.get("pct_pass_from_central_channel", 0),
+        "right": s.get("pct_pass_from_right_channel", 0),
     })
     to_lane, to_lane_val = _argmax_label({
-        "left":   s.get("pct_pass_to_left_channel", 0),
-        "central":s.get("pct_pass_to_central_channel", 0),
-        "right":  s.get("pct_pass_to_right_channel", 0),
+        "left": s.get("pct_pass_to_left_channel", 0),
+        "central": s.get("pct_pass_to_central_channel", 0),
+        "right": s.get("pct_pass_to_right_channel", 0),
     })
     third, third_val = _argmax_label({
         "deep": s.get("pct_pass_from_def_third", 0),
-        "mid":  s.get("pct_pass_from_mid_third", 0),
+        "mid": s.get("pct_pass_from_mid_third", 0),
         "high": s.get("pct_pass_from_att_third", 0),
     })
 
@@ -321,25 +365,23 @@ def role_variant_suffix_human(s: pd.Series) -> str:
     is_recycler = s.get("pct_lateral_passes", 0) > 0.7
 
     is_threader = s.get("throughballs_per90", 0) > 1.0
-    is_creator  = s.get("key_passes_per90", 0) > 0.6
-    is_box      = (s.get("pct_passes_into_box", 0) > 0.7) or (s.get("pct_pass_wide_to_box", 0) > 0.7)
+    is_creator = s.get("key_passes_per90", 0) > 0.6
+    is_box = (s.get("pct_passes_into_box", 0) > 0.7) or (s.get("pct_pass_wide_to_box", 0) > 0.7)
 
     is_progressive = s.get("pct_progressive_passes", 0) > 0.8
     is_long = (s.get("pct_long_pass", 0) > 0.9) or (s.get("avg_pass_length", 0) > 0.9)
     is_short = s.get("pct_short_pass", 0) > 0.9
     is_hub = s.get("passes_per_90", 0) > 1.0
 
-    parts = []
-
     loc = []
     if third_val > 0.60:
-        loc.append({"deep":"Deep", "mid":"Midfield", "high":"Attacking"}[third])
+        loc.append({"deep": "Deep", "mid": "Midfield", "high": "Attacking"}[third])
     if from_lane_val > 0.55:
-        loc.append({"left":"Left", "central":"Central", "right":"Right"}[from_lane])
+        loc.append({"left": "Left", "central": "Central", "right": "Right"}[from_lane])
     if not loc and to_lane_val > 0.55:
-        loc.append({"left":"Left", "central":"Central", "right":"Right"}[to_lane])
+        loc.append({"left": "Left", "central": "Central", "right": "Right"}[to_lane])
 
-    parts.append(" ".join(loc) if loc else "Mixed")
+    parts = [" ".join(loc) if loc else "Mixed"]
 
     behaviour = []
     if is_threader and is_creator:
@@ -375,18 +417,13 @@ def role_variant_suffix_human(s: pd.Series) -> str:
 
 
 def unique_role_name_map(role_profiles: pd.DataFrame) -> dict[int, str]:
-    """
-    Returns role_id -> unique human-readable role_name.
-    Family can repeat, full name cannot.
-    Deterministic: same profiles => same names.
-    """
     provisional = {}
     for rid in role_profiles.index:
         s = role_profiles.loc[rid]
         fam = role_family(s)
-        suffix = role_variant_suffix_human(s)
         if fam == "Unlabelled":
             fam = "Link-up connector"
+        suffix = role_variant_suffix_human(s)
         provisional[rid] = f"{fam} — {suffix}"
 
     seen = {}
@@ -410,10 +447,6 @@ def centroid_remap_feature_space(
     new_df_roles: pd.DataFrame,
     feats_common: list[str],
 ) -> dict[int, int]:
-    """
-    Returns mapping new_label -> ref_label using cosine distance between
-    centroids in STANDARDIZED FEATURE SPACE (z__ columns).
-    """
     zcols = [f"z__{c}" for c in feats_common]
 
     ref_centroids = ref_df_roles.groupby("role_id")[zcols].mean().sort_index().to_numpy()
@@ -488,65 +521,21 @@ def top_archetypes(df_roles: pd.DataFrame, n: int = 10):
         print(sub[["player", "player_position", "dataset", "role_strength"]])
 
 
-def archetype_sets(df_roles: pd.DataFrame, top_n: int = 25) -> dict[int, set]:
-    sets = {}
-    for rid in sorted(df_roles["role_id"].unique()):
-        sub = df_roles[df_roles["role_id"] == rid].sort_values("role_strength", ascending=False).head(top_n)
-        sets[rid] = set(zip(sub["player_key"], sub["dataset"]))
-    return sets
-
-
-def jaccard(a: set, b: set) -> float:
-    if not a and not b:
-        return 1.0
-    return len(a & b) / len(a | b)
-
-
-def archetype_overlap(df_a: pd.DataFrame, df_b: pd.DataFrame, top_n: int = 25):
-    sets_a = archetype_sets(df_a, top_n=top_n)
-    sets_b = archetype_sets(df_b, top_n=top_n)
-
-    rows = []
-    for ra, sa in sets_a.items():
-        best_rb, best_j = None, -1
-        for rb, sb in sets_b.items():
-            j = jaccard(sa, sb)
-            if j > best_j:
-                best_rb, best_j = rb, j
-        rows.append({"role_a": ra, "role_b": best_rb, f"jaccard_top{top_n}": best_j})
-
-    return pd.DataFrame(rows).sort_values(f"jaccard_top{top_n}", ascending=False)
-
-
 # ----------------------------------------
-# 9) Variant comparison (permutation-safe)
+# 9) Find similar player (fixed + safe)
 # ----------------------------------------
-def compare_clusterings(df_a: pd.DataFrame, df_b: pd.DataFrame, name: str):
-    merged = df_a[["player_key","dataset","role_id"]].merge(
-        df_b[["player_key","dataset","role_id"]],
-        on=["player_key","dataset"],
-        suffixes=("_a","_b")
-    )
-    a = merged["role_id_a"].to_numpy()
-    b = merged["role_id_b"].to_numpy()
-    return {
-        "pair": name,
-        "ARI": adjusted_rand_score(a, b),
-        "AMI": adjusted_mutual_info_score(a, b),
-        "n": int(len(merged)),
-    }
+_ROLE_COL_RE = re.compile(r"^role_(\d+)_strength$")
 
 
-# ----------------------------------------
-# 10) Find similar player
-# ----------------------------------------
 def build_similarity_index(df_roles: pd.DataFrame, X_pca_df: pd.DataFrame, feats: list[str], X_feat_df: pd.DataFrame):
     Xp = X_pca_df.to_numpy()
     sim = 1 - pairwise_distances(Xp, metric="cosine")
 
-    role_strength_cols = [c for c in df_roles.columns if c.startswith("role_") and c.endswith("_strength")]
-    R = df_roles[role_strength_cols].to_numpy()
+    # ✅ only role_{id}_strength, in numeric id order
+    role_strength_cols = [c for c in df_roles.columns if _ROLE_COL_RE.match(c)]
+    role_strength_cols = sorted(role_strength_cols, key=lambda c: int(_ROLE_COL_RE.match(c).group(1)))
 
+    R = df_roles[role_strength_cols].to_numpy()
     F = X_feat_df[feats].to_numpy()
 
     name_to_idx = {p: i for i, p in enumerate(df_roles["player"].tolist())}
@@ -559,6 +548,16 @@ def build_similarity_index(df_roles: pd.DataFrame, X_pca_df: pd.DataFrame, feats
         "feats": feats,
         "name_to_idx": name_to_idx,
     }
+
+
+def _top_role_ids(role_strength_cols: list[str], vec: np.ndarray, k: int) -> list[int]:
+    order = np.argsort(vec)[::-1][:k]
+    out: list[int] = []
+    for j in order:
+        m = _ROLE_COL_RE.match(role_strength_cols[j])
+        if m:
+            out.append(int(m.group(1)))
+    return out
 
 
 def find_similar_player(
@@ -584,23 +583,20 @@ def find_similar_player(
     F = index_obj["F"]
     feats = index_obj["feats"]
 
-    i_role_order = np.argsort(R[i])[::-1]
-    i_top_roles = [role_cols[j].replace("_strength","").replace("role_","") for j in i_role_order[:role_topk]]
+    i_top_roles = _top_role_ids(role_cols, R[i], role_topk)
 
     for j in order:
-        j_role_order = np.argsort(R[j])[::-1]
-        j_top_roles = [role_cols[t].replace("_strength","").replace("role_","") for t in j_role_order[:role_topk]]
+        j_top_roles = _top_role_ids(role_cols, R[j], role_topk)
 
-        shared = sorted(set(i_top_roles) & set(j_top_roles))
+        shared_ids = sorted(set(i_top_roles) & set(j_top_roles))
         shared_roles = []
-        for rid_str in shared:
-            rid = int(rid_str)
+        for rid in shared_ids:
             nm = df_roles[df_roles["role_id"] == rid]["role_name"].iloc[0] if "role_name" in df_roles.columns else str(rid)
             shared_roles.append(nm)
 
         deltas = np.abs(F[j] - F[i])
         top_idx = np.argsort(deltas)[::-1][:diff_topk]
-        biggest = [f"{feats[t]} ({F[j][t]-F[i][t]:+.3f})" for t in top_idx]
+        biggest = [f"{feats[t]} ({F[j][t] - F[i][t]:+.3f})" for t in top_idx]
 
         rows.append({
             "player": df_roles.loc[j, "player"],
@@ -615,15 +611,15 @@ def find_similar_player(
 
 
 # ----------------------------------------
-# 11) Run variant (used for full / nofoot / noother)
+# 10) Run variant
 # ----------------------------------------
 def run_variant(
-    df_raw,
-    features,
+    df_raw: pd.DataFrame,
+    features: list[str],
     drop_features=None,
-    k_final=12,
-    var_threshold=0.90,
-    random_state=42,
+    k_final: int = 12,
+    var_threshold: float = 0.90,
+    random_state: int = 42,
     ref=None,
     make_plots: bool = False,
 ):
@@ -633,7 +629,11 @@ def run_variant(
 
     X_feat_df = df_model[feats]
     scaler, pca, X_pca_df = fit_pca(
-        X_feat_df, n_components=None, var_threshold=var_threshold, random_state=random_state, make_plots=make_plots
+        X_feat_df,
+        n_components=None,
+        var_threshold=var_threshold,
+        random_state=random_state,
+        make_plots=make_plots,
     )
 
     df_roles, km, role_profiles, std = fit_roles(
@@ -673,15 +673,17 @@ def run_variant(
 
 
 # =========================
-# MAIN RUN (SAFE)
+# MAIN RUN (Heroku-safe)
 # =========================
 def main():
     df_raw = load_player_level_datasets()
 
+    df_raw = collapse_to_one_profile_per_player(df_raw)
+
     Ks = range(2, 21)
     K_FINAL = 12
 
-    base = run_variant(df_raw, FEATURES, drop_features=None, k_final=K_FINAL, var_threshold=0.90, ref=None, make_plots=True)
+    base = run_variant(df_raw, FEATURES, drop_features=None, k_final=K_FINAL, var_threshold=0.90, ref=None, make_plots=False)
     nofoot = run_variant(df_raw, FEATURES, drop_features=FOOTEDNESS_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base, make_plots=False)
     noother = run_variant(df_raw, FEATURES, drop_features=ARTEFACTY_FEATURES, k_final=K_FINAL, var_threshold=0.90, ref=base, make_plots=False)
 
@@ -689,38 +691,19 @@ def main():
     print("Top silhouettes:")
     print(scan.sort_values("silhouette", ascending=False).head(10))
 
-    plt.figure(figsize=(10,4))
-    plt.plot(scan["k"], scan["inertia"], marker="o", linestyle="--")
-    plt.xlabel("k"); plt.ylabel("Inertia (WCSS)"); plt.title("KMeans inertia vs k")
-    plt.show()
-
-    plt.figure(figsize=(10,4))
-    plt.plot(scan["k"], scan["silhouette"], marker="o", linestyle="--")
-    plt.xlabel("k"); plt.ylabel("Silhouette"); plt.title("KMeans silhouette vs k")
-    plt.show()
-
     stab = stability_scan(base["X_pca_df"], Ks, n_runs=25, frac=0.8, seed=42, n_init=20)
     print("Top stabilities:")
     print(stab.sort_values("stability_ari_mean", ascending=False).head(10))
 
-    plt.figure(figsize=(10,4))
-    plt.plot(stab["k"], stab["stability_ari_mean"], marker="o", linestyle="--")
-    plt.xlabel("k"); plt.ylabel("Mean ARI (stability)"); plt.title("KMeans stability vs k")
-    plt.show()
-
+    print("Role counts:")
     print(base["df_roles"]["role_id"].value_counts().sort_index())
+
     print_role_profiles(base["role_profiles"], top_n=10)
     top_archetypes(base["df_roles"], n=10)
 
     print("Variant comparison (proper, permutation-safe):")
     print(compare_clusterings(base["df_roles"], nofoot["df_roles"], "full vs nofoot"))
     print(compare_clusterings(base["df_roles"], noother["df_roles"], "full vs noother"))
-
-    print("\nArchetype overlap full vs nofoot (top25):")
-    print(archetype_overlap(base["df_roles"], nofoot["df_roles"], top_n=25).head(12))
-
-    print("\nArchetype overlap full vs noother (top25):")
-    print(archetype_overlap(base["df_roles"], noother["df_roles"], top_n=25).head(12))
 
     sim_index = build_similarity_index(
         df_roles=base["df_roles"],
@@ -729,7 +712,6 @@ def main():
         X_feat_df=base["X_feat_df"],
     )
 
-    # Example:
     # result = find_similar_player("Cody Mathès Gakpo", base["df_roles"], sim_index, top_n=10)
     # print(result)
 

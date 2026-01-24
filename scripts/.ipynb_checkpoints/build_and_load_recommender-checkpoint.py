@@ -5,6 +5,7 @@ from psycopg2.extras import execute_values, Json
 
 from football_analytics.analyses.passing.kmeans_analysis_total import (
     load_player_level_datasets,
+    collapse_to_one_profile_per_player,  # ✅ NEW: aggregate across tournaments + drop GKs
     run_variant,
     build_similarity_index,
     FEATURES,
@@ -33,9 +34,12 @@ def _as_float_list(row) -> list[float]:
 
 
 def main():
-    # 1) Run pipeline (NO PLOTS)
+    # 1) Load raw datasets + collapse to ONE profile per player (across tournaments)
+    #    Also drops Goalkeepers inside the collapse function (per your requirement).
     df_raw = load_player_level_datasets()
+    df_raw = collapse_to_one_profile_per_player(df_raw)  # ✅ NEW BEHAVIOUR
 
+    # 2) Run pipeline (NO PLOTS)
     base = run_variant(
         df_raw,
         FEATURES,
@@ -63,7 +67,7 @@ def main():
     try:
         with conn:
             with conn.cursor() as cur:
-                # 2) Upsert model_version
+                # 3) Upsert model_version
                 # feats column is jsonb ✅
                 cur.execute(
                     """
@@ -84,14 +88,14 @@ def main():
                     ),
                 )
 
-                # 3) Bulk rows
+                # 4) Bulk rows
                 player_rows = []
                 emb_rows = []
                 feat_rows = []
 
                 for i, r in df_roles.iterrows():
                     key = _as_int(r["player_key"])
-                    dataset = str(r["dataset"])
+                    dataset = str(r["dataset"])  # will be "ALL" after collapse
 
                     player_rows.append(
                         (
@@ -124,7 +128,7 @@ def main():
                         )
                     )
 
-                # 3a) player
+                # 4a) player
                 execute_values(
                     cur,
                     """
@@ -140,7 +144,7 @@ def main():
                     player_rows,
                 )
 
-                # 3b) player_embedding (float8[])
+                # 4b) player_embedding (float8[])
                 execute_values(
                     cur,
                     """
@@ -152,7 +156,7 @@ def main():
                     emb_rows,
                 )
 
-                # 3c) player_features (float8[])
+                # 4c) player_features (float8[])
                 execute_values(
                     cur,
                     """
@@ -164,7 +168,7 @@ def main():
                     feat_rows,
                 )
 
-                # 4) neighbours
+                # 5) neighbours
                 neigh_rows = []
                 for i, r in df_roles.iterrows():
                     sims = sim[i].copy()
@@ -172,7 +176,7 @@ def main():
                     order = np.argsort(sims)[::-1][:TOP_N]
 
                     src_key = _as_int(r["player_key"])
-                    src_dataset = str(r["dataset"])
+                    src_dataset = str(r["dataset"])  # will be "ALL"
 
                     for rank, j in enumerate(order, start=1):
                         neigh_rows.append(
