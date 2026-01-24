@@ -3,7 +3,7 @@ name = "football-analytics-ml"
 version = "0.1.0"
 description = ""
 authors = ["Molly beesbargirl25@gmail.com"]
-packages = [{ include = "football_analytics" }]
+packages = [{ include = "football_analytics", from = "src" }]
 
 [tool.poetry.dependencies]
 python = ">=3.10"
