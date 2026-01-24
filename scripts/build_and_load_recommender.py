@@ -3,7 +3,6 @@ import numpy as np
 import psycopg2
 from psycopg2.extras import execute_values, Json
 
-# Import your pipeline functions + FEATURES list (single source of truth)
 from football_analytics.analyses.passing.kmeans_analysis_total import (
     load_player_level_datasets,
     run_variant,
@@ -14,6 +13,23 @@ from football_analytics.analyses.passing.kmeans_analysis_total import (
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
 TOP_N = int(os.getenv("TOP_N", "50"))
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+
+def _as_int(x):
+    # Handles floats like 2941.0 safely
+    if x is None:
+        return None
+    if isinstance(x, (int, np.integer)):
+        return int(x)
+    if isinstance(x, (float, np.floating)):
+        return int(x)
+    # if it comes as a string, try int conversion
+    return int(str(x))
+
+
+def _as_float_list(row) -> list[float]:
+    # Ensures pure Python floats (not numpy types)
+    return [float(v) for v in row]
 
 
 def main():
@@ -43,12 +59,12 @@ def main():
     )
     sim = sim_index["sim"]
 
-    # 2) DB writes
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn:
             with conn.cursor() as cur:
-                # 2a) Upsert model_version (feats is jsonb)
+                # 2) Upsert model_version
+                # feats column is jsonb ✅
                 cur.execute(
                     """
                     INSERT INTO model_version (model_version, notes, k_final, pca_components, feats)
@@ -68,34 +84,34 @@ def main():
                     ),
                 )
 
-                # 3) Build rows for bulk upserts
+                # 3) Bulk rows
                 player_rows = []
                 emb_rows = []
                 feat_rows = []
 
                 for i, r in df_roles.iterrows():
-                    key = r["player_key"]
-                    dataset = r["dataset"]
+                    key = _as_int(r["player_key"])
+                    dataset = str(r["dataset"])
 
                     player_rows.append(
                         (
                             MODEL_VERSION,
                             key,
                             dataset,
-                            r["player"],
-                            r["player_position"],
+                            str(r["player"]),
+                            str(r["player_position"]),
                             int(r["role_id"]),
-                            r["role_name"],
+                            str(r["role_name"]),
                         )
                     )
 
-                    # ✅ If embedding/features columns are jsonb, wrap with Json(...)
+                    # embedding/features columns are float8[] ✅
                     emb_rows.append(
                         (
                             MODEL_VERSION,
                             key,
                             dataset,
-                            Json(list(X_pca_df.iloc[i].to_numpy())),
+                            _as_float_list(X_pca_df.iloc[i].to_numpy()),
                         )
                     )
 
@@ -104,11 +120,11 @@ def main():
                             MODEL_VERSION,
                             key,
                             dataset,
-                            Json(list(X_feat_df.iloc[i].to_numpy())),
+                            _as_float_list(X_feat_df.iloc[i].to_numpy()),
                         )
                     )
 
-                # 3a) Upsert players
+                # 3a) player
                 execute_values(
                     cur,
                     """
@@ -124,7 +140,7 @@ def main():
                     player_rows,
                 )
 
-                # 3b) Upsert embeddings (jsonb)
+                # 3b) player_embedding (float8[])
                 execute_values(
                     cur,
                     """
@@ -136,7 +152,7 @@ def main():
                     emb_rows,
                 )
 
-                # 3c) Upsert features (jsonb)
+                # 3c) player_features (float8[])
                 execute_values(
                     cur,
                     """
@@ -148,21 +164,24 @@ def main():
                     feat_rows,
                 )
 
-                # 4) Upsert neighbours
+                # 4) neighbours
                 neigh_rows = []
                 for i, r in df_roles.iterrows():
                     sims = sim[i].copy()
                     sims[i] = -np.inf
                     order = np.argsort(sims)[::-1][:TOP_N]
 
+                    src_key = _as_int(r["player_key"])
+                    src_dataset = str(r["dataset"])
+
                     for rank, j in enumerate(order, start=1):
                         neigh_rows.append(
                             (
                                 MODEL_VERSION,
-                                r["player_key"],
-                                r["dataset"],
-                                df_roles.loc[j, "player_key"],
-                                df_roles.loc[j, "dataset"],
+                                src_key,
+                                src_dataset,
+                                _as_int(df_roles.loc[j, "player_key"]),
+                                str(df_roles.loc[j, "dataset"]),
                                 int(rank),
                                 float(sims[j]),
                             )
