@@ -7,6 +7,12 @@
   --border: rgba(255,255,255,0.12);
   --chip: rgba(255,255,255,0.08);
   --chip2: rgba(0, 170, 255, 0.14);
+
+  /* ✅ Tooltip vars */
+  --tip-bg: rgba(10, 10, 14, 0.98);
+  --tip-border: rgba(255,255,255,0.14);
+  --tip-shadow: 0 18px 55px rgba(0,0,0,0.60);
+  --tip-accent: rgba(0,170,255,0.35);
 }
 
 *{ box-sizing: border-box; }
@@ -283,7 +289,76 @@ summary::-webkit-details-marker{ display: none; }
   }
 }
 
+/* ============ Trait Hover ============ */
 .trait {
   border-bottom: 1px dotted rgba(255,255,255,0.35);
   cursor: help;
+  position: relative; /* ✅ anchor for custom tooltip if you use it */
+}
+
+/* ✅ Optional: make it feel interactive */
+.trait:hover{
+  border-bottom-color: rgba(0,170,255,0.55);
+  color: rgba(255,255,255,0.98);
+}
+
+/* ============ Custom Tooltip (optional but nicer) ============ */
+/*
+  This is ONLY used if you also add a tooltip element in JS (e.g. a <div id="tooltip">).
+  If you stick with native title tooltips, this won’t affect anything.
+*/
+
+.tooltip {
+  position: fixed;
+  z-index: 100000;
+  max-width: min(420px, 86vw);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.tooltip.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tooltip-inner {
+  background: var(--tip-bg);
+  border: 1px solid var(--tip-border);
+  border-left: 3px solid var(--tip-accent);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: var(--tip-shadow);
+  backdrop-filter: blur(10px);
+}
+
+.tooltip-title{
+  font-weight: 750;
+  font-size: 13px;
+  margin: 0 0 6px;
+  color: rgba(255,255,255,0.95);
+}
+
+.tooltip-body{
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255,255,255,0.78);
+  white-space: pre-line; /* ✅ preserve newlines from text */
+}
+
+.tooltip-meta{
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tooltip-pill{
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.72);
 }

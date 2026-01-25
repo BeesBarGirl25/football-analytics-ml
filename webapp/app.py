@@ -3,7 +3,6 @@ import traceback
 
 import psycopg2
 from flask import Flask, render_template, request, jsonify
-from psycopg2.extras import execute_values
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
@@ -282,7 +281,6 @@ def recommend():
                             "player_position": pos,
                             "similarity": float(sim),
                             "why_similar": why_similar,
-                            # ✅ FIX: return the correct variable names
                             "biggest_differences": biggest_differences,
                             "greatest_similarities": greatest_similarities,
                         }
@@ -307,6 +305,7 @@ def recommend():
 
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
 
 @app.get("/api/trait")
 def trait_one():
@@ -347,6 +346,60 @@ def trait_one():
                 "higher_means": row[4],
             }
         )
+    finally:
+        conn.close()
+
+
+@app.post("/api/traits")
+def traits_bulk():
+    payload = request.get_json(force=True) or {}
+    traits = payload.get("traits") or []
+
+    if not isinstance(traits, list) or not traits:
+        return jsonify({"traits": {}})
+
+    # de-dupe + stringify + cap
+    traits = sorted({str(t).strip() for t in traits if t is not None and str(t).strip()})
+    traits = traits[:500]
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT trait, display_name, description, category, higher_means
+                FROM trait_dictionary
+                WHERE model_version = %s
+                  AND trait = ANY(%s)
+                """,
+                (MODEL_VERSION, traits),
+            )
+            rows = cur.fetchall()
+
+        out = {}
+        for trait, display_name, description, category, higher_means in rows:
+            out[trait] = {
+                "trait": trait,
+                "display_name": display_name,
+                "description": description,
+                "category": category,
+                "higher_means": higher_means,
+            }
+
+        # fill missing with safe defaults
+        for t in traits:
+            out.setdefault(
+                t,
+                {
+                    "trait": t,
+                    "display_name": None,
+                    "description": "No glossary entry yet.",
+                    "category": None,
+                    "higher_means": None,
+                },
+            )
+
+        return jsonify({"traits": out})
     finally:
         conn.close()
 

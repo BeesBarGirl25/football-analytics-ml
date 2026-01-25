@@ -10,9 +10,45 @@ const goBtn = document.getElementById("go");
 let selected = null;
 let debounceTimer = null;
 
-const traitTooltipCache = new Map();
+/**
+ * Glossary cache.
+ * We cache the *full meta* per trait so we can show nice labels + tooltip text.
+ * Shape:
+ *  TRAIT_META.get("pct_pass_mid_to_att") -> {trait, display_name, description, category, higher_means}
+ */
+const TRAIT_META = new Map();
 
-async function getTraitTooltipText(trait) {
+/**
+ * Fetch trait meta in bulk (fast).
+ * Backend: POST /api/traits { traits: ["a","b"] } -> { traits: { "a": {...}, "b": {...} } }
+ */
+async function ensureTraitMeta(traits) {
+  const missing = [];
+  for (const t of traits) {
+    const key = String(t || "").trim();
+    if (!key) continue;
+    if (!TRAIT_META.has(key)) missing.push(key);
+  }
+  if (!missing.length) return;
+
+  const res = await safeJsonFetch("/api/traits", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ traits: [...new Set(missing)].slice(0, 500) })
+  });
+
+  const meta = res?.traits || {};
+  for (const [k, v] of Object.entries(meta)) {
+    TRAIT_META.set(k, v);
+  }
+}
+
+/**
+ * Single-trait fallback (kept for robustness).
+ * If the bulk endpoint fails, we can still lazily fetch per-trait.
+ */
+const traitTooltipCache = new Map();
+async function getTraitTooltipTextFallback(trait) {
   const key = String(trait || "").trim();
   if (!key) return null;
 
@@ -23,7 +59,8 @@ async function getTraitTooltipText(trait) {
     const parts = [];
     if (data?.description) parts.push(data.description);
     if (data?.higher_means) parts.push(`Higher means: ${data.higher_means}`);
-    return parts.join("\n") || "No glossary entry yet.";
+    parts.push(`Key: ${key}`);
+    return parts.join("\n\n") || "No glossary entry yet.";
   })();
 
   traitTooltipCache.set(key, p);
@@ -38,6 +75,30 @@ async function getTraitTooltipText(trait) {
   }
 }
 
+function tooltipTextForTrait(traitKey) {
+  const key = String(traitKey || "").trim();
+  const m = TRAIT_META.get(key);
+  if (!m) return null;
+
+  const parts = [];
+  if (m.description) parts.push(m.description);
+  if (m.higher_means) parts.push(`Higher means: ${m.higher_means}`);
+  parts.push(`Key: ${key}`);
+  return parts.join("\n\n");
+}
+
+function labelForTrait(traitKey) {
+  const key = String(traitKey || "").trim();
+  const m = TRAIT_META.get(key);
+  if (m && m.display_name) return m.display_name;
+  return prettyFeatureName(key);
+}
+
+/**
+ * Hover handler:
+ * - if we already have meta from bulk fetch, use it immediately
+ * - else fallback to the per-trait endpoint (still works)
+ */
 document.addEventListener("mouseover", async (e) => {
   const el = e.target.closest("[data-trait]");
   if (!el) return;
@@ -45,12 +106,23 @@ document.addEventListener("mouseover", async (e) => {
   // don't refetch if already set
   if (el.dataset.tooltipLoaded === "1") return;
 
+  const key = String(el.dataset.trait || "").trim();
+  if (!key) return;
+
+  // 1) if bulk meta exists, use it immediately
+  const bulkTip = tooltipTextForTrait(key);
+  if (bulkTip) {
+    el.title = bulkTip;
+    el.dataset.tooltipLoaded = "1";
+    return;
+  }
+
+  // 2) fallback: lazy fetch single trait
   el.title = "Loading…";
-  const text = await getTraitTooltipText(el.dataset.trait);
+  const text = await getTraitTooltipTextFallback(key);
   if (text) el.title = text;
   el.dataset.tooltipLoaded = "1";
 });
-
 
 function prettyFeatureName(raw) {
   const s = String(raw || "");
@@ -212,29 +284,29 @@ function renderResults(payload) {
 
     const diffsHtml = diffs.map(d => {
       const cls = Number(d.delta) >= 0 ? "delta-pos" : "delta-neg";
+      const label = labelForTrait(d.feature);
       return `
         <div class="item">
-          <span class="trait" data-trait="${escapeHtml(d.feature)}" title="Loading…">
-            ${escapeHtml(prettyFeatureName(d.feature))}
+          <span class="trait" data-trait="${escapeHtml(d.feature)}" title="${escapeHtml(tooltipTextForTrait(d.feature) || "Loading…")}">
+            ${escapeHtml(label)}
           </span>
           <span class="${cls}">${escapeHtml(formatDeltaWithHint(d.feature, d.delta))}</span>
         </div>
       `;
     }).join("");
 
-
     const simsHtml = sims.map(s => {
       const cls = Number(s.delta) >= 0 ? "delta-pos" : "delta-neg";
+      const label = labelForTrait(s.feature);
       return `
         <div class="item">
-          <span class="trait" data-trait="${escapeHtml(s.feature)}" title="Loading…">
-            ${escapeHtml(prettyFeatureName(s.feature))}
+          <span class="trait" data-trait="${escapeHtml(s.feature)}" title="${escapeHtml(tooltipTextForTrait(s.feature) || "Loading…")}">
+            ${escapeHtml(label)}
           </span>
           <span class="${cls}">${escapeHtml(formatDeltaWithHint(s.feature, s.delta))}</span>
         </div>
       `;
     }).join("");
-
 
     const simVal = Number(r.similarity);
     const simShown = Number.isFinite(simVal) ? simVal.toFixed(3) : "—";
@@ -359,6 +431,14 @@ goBtn.addEventListener("click", async () => {
     });
 
     if (payload.source) showSelected(payload.source);
+
+    // Bulk fetch glossary meta for everything we’re about to render
+    const featSet = new Set();
+    (payload.results || []).forEach(r => {
+      (r.biggest_differences || []).forEach(x => featSet.add(x.feature));
+      (r.greatest_similarities || []).forEach(x => featSet.add(x.feature));
+    });
+    await ensureTraitMeta([...featSet]);
 
     renderResults(payload);
     showStatus(`Found ${payload.results?.length || 0} similar players.`);
