@@ -403,6 +403,193 @@ def traits_bulk():
     finally:
         conn.close()
 
+@app.get("/api/player_profile")
+def player_profile():
+    player_key = (request.args.get("player_key") or "").strip()
+    dataset = (request.args.get("dataset") or "").strip()
+    topk = int(request.args.get("topk", 12))
+    min_std = float(request.args.get("min_std", 1e-6))  # avoid divide-by-zero weirdness
+
+    if not player_key or not dataset:
+        return jsonify({"error": "player_key and dataset are required"}), 400
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            # 1) metadata
+            cur.execute(
+                """
+                SELECT player, player_position, role_id, role_name
+                FROM player
+                WHERE model_version=%s AND player_key=%s AND dataset=%s
+                """,
+                (MODEL_VERSION, player_key, dataset),
+            )
+            meta = cur.fetchone()
+            if not meta:
+                return jsonify({"error": "Player not found"}), 404
+
+            player_name, pos, role_id, role_name = meta
+
+            # 2) feats list (ordered)
+            cur.execute("SELECT feats FROM model_version WHERE model_version=%s", (MODEL_VERSION,))
+            row = cur.fetchone()
+            if not row or row[0] is None:
+                return jsonify({"error": "Model version feats not found"}), 500
+            feat_names = row[0]  # list[str]
+
+            # 3) player's feature vector
+            cur.execute(
+                """
+                SELECT features
+                FROM player_features
+                WHERE model_version=%s AND player_key=%s AND dataset=%s
+                """,
+                (MODEL_VERSION, player_key, dataset),
+            )
+            frow = cur.fetchone()
+            if not frow or frow[0] is None:
+                return jsonify({"error": "Player features not found"}), 404
+
+            feats = list(frow[0])
+            if len(feats) != len(feat_names):
+                return jsonify({"error": "Feature length mismatch"}), 500
+
+            # 4) compute role stats + z-scores in Postgres
+            #    - role_mean/std per feature index, based on all players in that role_id for this model_version
+            #    - then z = (player_val - mean) / std
+            #    NOTE: This assumes `player_features.features` is a Postgres array (float8[]).
+            cur.execute(
+                """
+                WITH role_players AS (
+                    SELECT pf.features
+                    FROM player_features pf
+                    JOIN player p
+                      ON p.model_version = pf.model_version
+                     AND p.player_key   = pf.player_key
+                     AND p.dataset      = pf.dataset
+                    WHERE pf.model_version = %s
+                      AND p.role_id = %s
+                ),
+                role_stats AS (
+                    SELECT
+                        i AS idx,
+                        AVG( (features)[i] ) AS mean,
+                        STDDEV_POP( (features)[i] ) AS std
+                    FROM role_players, generate_subscripts(features, 1) AS i
+                    GROUP BY i
+                )
+                SELECT
+                    s.idx,
+                    s.mean,
+                    s.std
+                FROM role_stats s
+                ORDER BY s.idx
+                """,
+                (MODEL_VERSION, role_id),
+            )
+            stats_rows = cur.fetchall()
+
+            # if role has no stats (shouldn't happen), fallback to global
+            if not stats_rows:
+                cur.execute(
+                    """
+                    WITH all_players AS (
+                        SELECT features
+                        FROM player_features
+                        WHERE model_version = %s
+                    ),
+                    stats AS (
+                        SELECT
+                            i AS idx,
+                            AVG( (features)[i] ) AS mean,
+                            STDDEV_POP( (features)[i] ) AS std
+                        FROM all_players, generate_subscripts(features, 1) AS i
+                        GROUP BY i
+                    )
+                    SELECT idx, mean, std
+                    FROM stats
+                    ORDER BY idx
+                    """,
+                    (MODEL_VERSION,),
+                )
+                stats_rows = cur.fetchall()
+
+            # Build arrays aligned by idx (idx is 1-based in Postgres arrays)
+            # We'll store in dict for safety.
+            stats = {}
+            for idx, mean, std in stats_rows:
+                stats[int(idx)] = (float(mean) if mean is not None else 0.0, float(std) if std is not None else 0.0)
+
+            # 5) score each feature by |z|, but only where std is valid
+            scored = []
+            for i0, (trait, val) in enumerate(zip(feat_names, feats)):
+                idx = i0 + 1  # postgres index
+                mean, std = stats.get(idx, (0.0, 0.0))
+                if std is None or abs(std) < min_std:
+                    continue
+                z = (float(val) - float(mean)) / float(std)
+                scored.append((trait, float(val), float(mean), float(std), float(z)))
+
+            scored.sort(key=lambda x: abs(x[4]), reverse=True)
+            scored = scored[:max(1, topk)]
+
+            # 6) enrich with dictionary in one query
+            traits = [t for (t, *_rest) in scored]
+            dict_map = {}
+            if traits:
+                cur.execute(
+                    """
+                    SELECT trait, display_name, description, category, higher_means
+                    FROM trait_dictionary
+                    WHERE model_version = %s
+                      AND trait = ANY(%s)
+                    """,
+                    (MODEL_VERSION, traits),
+                )
+                for trait, display_name, description, category, higher_means in cur.fetchall():
+                    dict_map[trait] = {
+                        "display_name": display_name,
+                        "description": description,
+                        "category": category,
+                        "higher_means": higher_means,
+                    }
+
+            enriched = []
+            for trait, val, mean, std, z in scored:
+                m = dict_map.get(trait, {})
+                direction = "higher" if z >= 0 else "lower"
+                enriched.append(
+                    {
+                        "trait": trait,
+                        "display_name": m.get("display_name"),
+                        "description": m.get("description"),
+                        "category": m.get("category"),
+                        "higher_means": m.get("higher_means"),
+                        "value": val,
+                        "role_mean": mean,
+                        "role_std": std,
+                        "z": z,
+                        "direction_vs_role": direction,
+                    }
+                )
+
+        return jsonify(
+            {
+                "player_key": player_key,
+                "dataset": dataset,
+                "player": player_name,
+                "player_position": pos,
+                "role_id": int(role_id),
+                "role_name": role_name,
+                "baseline": "role",
+                "top_traits": enriched,
+            }
+        )
+    finally:
+        conn.close()
+
+
 
 if __name__ == "__main__":
     # local dev only

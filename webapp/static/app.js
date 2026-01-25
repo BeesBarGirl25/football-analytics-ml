@@ -7,6 +7,9 @@ const topNInput = document.getElementById("top_n");
 const diffTopKInput = document.getElementById("diff_topk");
 const goBtn = document.getElementById("go");
 
+// ✅ NEW: right-hand profile container from index.html
+const profileBox = document.getElementById("profile");
+
 let selected = null;
 let debounceTimer = null;
 
@@ -22,6 +25,40 @@ const TRAIT_META = new Map();
  * Fetch trait meta in bulk (fast).
  * Backend: POST /api/traits { traits: ["a","b"] } -> { traits: { "a": {...}, "b": {...} } }
  */
+
+function formatZ(z) {
+  const n = Number(z);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}σ`;
+}
+
+function formatVal(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(3);
+}
+
+async function loadAndRenderProfile(player_key, dataset) {
+  if (!profileBox) return;
+
+  profileBox.classList.remove("muted");
+  profileBox.innerHTML = `<div style="opacity:.8">Loading profile…</div>`;
+
+  const prof = await safeJsonFetch(
+    `/api/player_profile?player_key=${encodeURIComponent(player_key)}&dataset=${encodeURIComponent(dataset)}&topk=12`
+  );
+
+  // Ensure trait meta for profile traits too
+  const traitKeys = (prof.top_traits || []).map(t => t.trait);
+  await ensureTraitMeta(traitKeys);
+
+  renderProfileFromProfilePayload(prof);
+
+  // patch tooltips/labels now that TRAIT_META is populated
+  patchRenderedTraitElements();
+}
+
 async function ensureTraitMeta(traits) {
   const missing = [];
   for (const t of traits) {
@@ -92,6 +129,28 @@ function labelForTrait(traitKey) {
   const m = TRAIT_META.get(key);
   if (m && m.display_name) return m.display_name;
   return prettyFeatureName(key);
+}
+
+/**
+ * After bulk fetch, update any currently-rendered trait elements
+ * so tooltips + labels stop saying "Loading…".
+ */
+function patchRenderedTraitElements() {
+  document.querySelectorAll("[data-trait]").forEach((el) => {
+    const key = String(el.dataset.trait || "").trim();
+    if (!key) return;
+
+    // label
+    const label = labelForTrait(key);
+    if (label && el.textContent !== label) el.textContent = label;
+
+    // tooltip
+    const tip = tooltipTextForTrait(key);
+    if (tip) {
+      el.title = tip;
+      el.dataset.tooltipLoaded = "1";
+    }
+  });
 }
 
 /**
@@ -251,6 +310,14 @@ function renderSuggestions(players) {
       clearSuggestions();
       clearStatus();
       showSelected(p);
+
+      // ✅ optional: wipe profile until user hits Go
+      if (profileBox) {
+        profileBox.classList.remove("muted");
+        profileBox.innerHTML = `
+          <div style="opacity:.8">Ready when you are. Hit <b>Go</b> to load this player’s profile + comparisons.</div>
+        `;
+      }
     };
 
     suggestions.appendChild(div);
@@ -258,6 +325,78 @@ function renderSuggestions(players) {
 
   openSuggestions();
 }
+
+/**
+ * ✅ NEW: render right-hand player profile panel
+ * We use payload.source, and (optionally) the first neighbour to show a quick "style snapshot".
+ */
+function renderProfileFromProfilePayload(prof) {
+  if (!profileBox) return;
+
+  const top = prof?.top_traits || [];
+  const baseline = prof?.baseline === "role" ? "role peers" : "dataset";
+
+  const listHtml = top.length
+    ? top.map(t => {
+        const key = t.trait;
+        const label = labelForTrait(key);
+        const z = Number(t.z);
+        const zCls = z >= 0 ? "z-pos" : "z-neg";
+        const dir = t.direction_vs_role || (z >= 0 ? "higher" : "lower");
+
+        // tooltip uses our glossary text if available
+        const tip = tooltipTextForTrait(key) || "Loading…";
+
+        return `
+          <div class="profile-item">
+            <div>
+              <div class="trait" data-trait="${escapeHtml(key)}" title="${escapeHtml(tip)}">
+                ${escapeHtml(label)}
+              </div>
+              <div class="profile-val" style="margin-top:4px;">
+                ${escapeHtml(dir)} vs ${escapeHtml(baseline)}
+              </div>
+            </div>
+            <div class="rhs">
+              <div class="profile-z ${zCls}">${escapeHtml(formatZ(z))}</div>
+              <div class="profile-val">val: ${escapeHtml(formatVal(t.value))}</div>
+            </div>
+          </div>
+        `;
+      }).join("")
+    : `<div class="profile-note">No profile traits returned.</div>`;
+
+  profileBox.classList.remove("muted");
+  profileBox.innerHTML = `
+    <div class="profile-header">
+      <div class="profile-name">${escapeHtml(prof.player || "—")}</div>
+      <div class="profile-sub">${escapeHtml(prof.dataset || "—")} · ${escapeHtml(prof.player_position || "—")}</div>
+      <div class="profile-role"><b>Role:</b> ${escapeHtml(prof.role_name || "—")}</div>
+    </div>
+
+    <div class="profile-section-title">Top traits (vs role)</div>
+    <div class="profile-note">
+      These are the traits where this player differs most from their <b>${escapeHtml(baseline)}</b>.
+    </div>
+
+    <div class="profile-list">
+      ${listHtml}
+    </div>
+  `;
+}
+
+function renderProfile(payload) {
+  // keep this as a lightweight wrapper so existing call sites don’t explode
+  const src = payload?.source;
+  if (!src || !profileBox) return;
+
+  // We now render via the proper endpoint
+  loadAndRenderProfile(src.player_key, src.dataset).catch(err => {
+    profileBox.classList.add("muted");
+    profileBox.textContent = `Could not load profile: ${err.message}`;
+  });
+}
+
 
 function renderResults(payload) {
   const recs = payload.results || [];
@@ -379,6 +518,10 @@ search.addEventListener("input", () => {
   if (selected && search.value.trim() !== selected.player) {
     selected = null;
     clearSelected();
+    if (profileBox) {
+      profileBox.classList.add("muted");
+      profileBox.textContent = "Search and select a player to see their profile.";
+    }
   }
 });
 
@@ -440,7 +583,14 @@ goBtn.addEventListener("click", async () => {
     });
     await ensureTraitMeta([...featSet]);
 
+    // ✅ NEW: render profile (uses trait labels too)
+    renderProfile(payload);
+
     renderResults(payload);
+
+    // ✅ NEW: now we have meta, patch labels + titles that were rendered as Loading…
+    patchRenderedTraitElements();
+
     showStatus(`Found ${payload.results?.length || 0} similar players.`);
   } catch (err) {
     showStatus(err.message, true);
