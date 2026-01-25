@@ -8,16 +8,14 @@ echo "MODEL_VERSION=${MODEL_VERSION:-passing_v1}"
 
 echo ""
 echo "=== 1) INIT DB ==="
-python scripts/init_db.py
+run scripts/init_db.sql
 
 echo ""
 echo "=== 2) BUILD + LOAD MODEL DATA ==="
-# change this filename to your actual loader script path
 python scripts/build_and_load.py
 
 echo ""
 echo "=== 3) BUILD TRAIT DICTIONARY ==="
-# change this filename to your actual trait script path
 python scripts/build_trait_dictionary.py
 
 echo ""
