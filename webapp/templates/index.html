@@ -1,41 +1,46 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Passing Player Recommender</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Player Similarity</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-
 <body>
-  <div class="wrap">
+  <div class="page">
     <header class="header">
-      <div>
-        <h1>Passing Player Recommender</h1>
-        <p class="sub">Find players with similar passing profiles, plus why they’re similar.</p>
-      </div>
+      <h1>Player Similarity</h1>
+      <p class="sub">Search a player → get similar profiles with “closest features” + biggest differences.</p>
     </header>
 
     <section class="panel">
       <div class="controls">
-        <div class="search-block">
+        <!-- ✅ IMPORTANT: suggestions dropdown is anchored to this wrapper -->
+        <div class="search-wrap">
           <label class="label" for="search">Player</label>
-          <input id="search" placeholder="Start typing a player name..." autocomplete="off"/>
-          <div id="suggestions" class="suggestions"></div>
+          <input
+            id="search"
+            class="input"
+            type="text"
+            placeholder="Start typing a name…"
+            autocomplete="off"
+          />
+          <div id="suggestions" class="suggestions hidden" aria-label="Suggestions"></div>
         </div>
 
-        <div class="opts">
-          <div class="opt">
-            <label class="label" for="top_n">Top N</label>
-            <input id="top_n" type="number" min="1" max="50" value="10"/>
-          </div>
+        <div class="control">
+          <label class="label" for="top_n">Top N</label>
+          <input id="top_n" class="input" type="number" min="1" max="100" value="10" />
+        </div>
 
-          <div class="opt">
-            <label class="label" for="diff_topk">Differences</label>
-            <input id="diff_topk" type="number" min="1" max="25" value="8"/>
-          </div>
+        <div class="control">
+          <label class="label" for="diff_topk">Diff TopK</label>
+          <input id="diff_topk" class="input" type="number" min="1" max="25" value="8" />
+        </div>
 
-          <button id="go" class="btn">Recommend</button>
+        <div class="control">
+          <label class="label label-spacer"> </label>
+          <button id="go" class="btn" type="button">Go</button>
         </div>
       </div>
 
@@ -43,9 +48,11 @@
       <div id="status" class="status hidden"></div>
     </section>
 
-    <main id="results" class="results"></main>
+    <section class="results-wrap">
+      <div id="results"></div>
+    </section>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

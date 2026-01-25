@@ -117,7 +117,7 @@ async function safeJsonFetch(url, options = {}) {
 
 function renderSuggestions(players) {
   suggestions.innerHTML = "";
-  if (!players.length) {
+  if (!players || !players.length) {
     clearSuggestions();
     return;
   }
@@ -158,7 +158,7 @@ function renderResults(payload) {
     const diffs = r.biggest_differences || [];
     const sims = r.greatest_similarities || [];
 
-    // ✅ backend might send `why_similar` (array of strings) OR `shared_roles`
+    // backend might send why_similar (array of strings) OR shared_roles
     const shared =
       Array.isArray(r.shared_roles) ? r.shared_roles.slice(0, 3)
       : Array.isArray(r.why_similar) ? r.why_similar.slice(0, 3)
@@ -310,7 +310,6 @@ goBtn.addEventListener("click", async () => {
       })
     });
 
-    // Update selected box based on server’s source (more reliable)
     if (payload.source) showSelected(payload.source);
 
     renderResults(payload);
