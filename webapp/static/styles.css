@@ -488,3 +488,75 @@ summary::-webkit-details-marker{ display: none; }
   background: rgba(255,255,255,0.06);
   color: rgba(255,255,255,0.72);
 }
+
+/* ============ Similarity Buckets (7 levels) ============ */
+
+/* Elite — neon green */
+.simbar.sim-elite > div {
+  background: linear-gradient(90deg,
+    rgba(120, 255, 180, 0.95),
+    rgba(80, 220, 150, 0.95)
+  );
+}
+
+/* High — strong green */
+.simbar.sim-hi > div {
+  background: linear-gradient(90deg,
+    rgba(90, 255, 170, 0.85),
+    rgba(60, 210, 140, 0.85)
+  );
+}
+
+/* Good — teal */
+.simbar.sim-good > div {
+  background: linear-gradient(90deg,
+    rgba(0, 220, 200, 0.85),
+    rgba(0, 180, 170, 0.85)
+  );
+}
+
+/* Mid — blue */
+.simbar.sim-mid > div {
+  background: linear-gradient(90deg,
+    rgba(0, 170, 255, 0.80),
+    rgba(0, 130, 210, 0.80)
+  );
+}
+
+/* Ok — yellow/amber */
+.simbar.sim-ok > div {
+  background: linear-gradient(90deg,
+    rgba(255, 210, 110, 0.85),
+    rgba(220, 170, 70, 0.85)
+  );
+}
+
+/* Low — orange */
+.simbar.sim-low > div {
+  background: linear-gradient(90deg,
+    rgba(255, 160, 90, 0.85),
+    rgba(220, 120, 60, 0.85)
+  );
+}
+
+/* Very low — red */
+.simbar.sim-vlow > div {
+  background: linear-gradient(90deg,
+    rgba(255, 120, 120, 0.90),
+    rgba(210, 80, 80, 0.90)
+  );
+}
+
+/* Unknown */
+.simbar.sim-unk > div {
+  background: rgba(255,255,255,0.20);
+}
+
+/* Optional: tint similarity chip borders too */
+.chip.sim-elite { border-color: rgba(120, 255, 180, 0.45); }
+.chip.sim-hi    { border-color: rgba(90, 255, 170, 0.40); }
+.chip.sim-good  { border-color: rgba(0, 220, 200, 0.40); }
+.chip.sim-mid   { border-color: rgba(0, 170, 255, 0.40); }
+.chip.sim-ok    { border-color: rgba(255, 210, 110, 0.40); }
+.chip.sim-low   { border-color: rgba(255, 160, 90, 0.40); }
+.chip.sim-vlow  { border-color: rgba(255, 120, 120, 0.40); }

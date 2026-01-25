@@ -26,6 +26,20 @@ const TRAIT_META = new Map();
  * Backend: POST /api/traits { traits: ["a","b"] } -> { traits: { "a": {...}, "b": {...} } }
  */
 
+function simBucket(sim) {
+  const s = Number(sim);
+  if (!Number.isFinite(s)) return "sim-unk";
+
+  if (s >= 0.92) return "sim-elite";   // basically clones
+  if (s >= 0.85) return "sim-hi";      // very strong
+  if (s >= 0.78) return "sim-good";    // strong
+  if (s >= 0.70) return "sim-mid";     // decent
+  if (s >= 0.62) return "sim-ok";      // meh+
+  if (s >= 0.55) return "sim-low";     // weak
+  return "sim-vlow";                   // nah
+}
+
+
 function formatZ(z) {
   const n = Number(z);
   if (!Number.isFinite(n)) return "—";
@@ -453,6 +467,8 @@ function renderResults(payload) {
       ? (Math.max(0, Math.min(1, simVal)) * 100)
       : 0;
 
+
+    const bucket = simBucket(simVal);
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
@@ -466,7 +482,9 @@ function renderResults(payload) {
         <div class="chip">Similarity: ${simShown}</div>
       </div>
 
-      <div class="simbar"><div style="width:${simPct.toFixed(1)}%"></div></div>
+      <div class="simbar ${bucket}">
+        <div style="width:${simPct.toFixed(1)}%"></div>
+      </div>
 
       <div class="meta">
         <span class="chip">${escapeHtml(r.dataset)}</span>
