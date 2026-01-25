@@ -145,14 +145,7 @@ function renderSuggestions(players) {
   openSuggestions();
 }
 
-function formatDelta(delta) {
-  const d = Number(delta);
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${d.toFixed(3)}`;
-}
-
 function renderResults(payload) {
-  const src = payload.source;
   const recs = payload.results || [];
   results.innerHTML = "";
 
@@ -163,10 +156,16 @@ function renderResults(payload) {
 
   recs.forEach((r, idx) => {
     const diffs = r.biggest_differences || [];
-    const shared = (r.shared_roles || []).slice(0, 3);
+    const sims = r.greatest_similarities || [];
+
+    // ✅ backend might send `why_similar` (array of strings) OR `shared_roles`
+    const shared =
+      Array.isArray(r.shared_roles) ? r.shared_roles.slice(0, 3)
+      : Array.isArray(r.why_similar) ? r.why_similar.slice(0, 3)
+      : [];
 
     const sharedHtml = shared.length
-      ? shared.map(nm => `<span class="chip">Same role: ${escapeHtml(nm)}</span>`).join("")
+      ? shared.map(txt => `<span class="chip">${escapeHtml(txt)}</span>`).join("")
       : `<span class="chip">No role overlap</span>`;
 
     const diffsHtml = diffs.map(d => {
@@ -179,7 +178,21 @@ function renderResults(payload) {
       `;
     }).join("");
 
-    const simPct = Math.max(0, Math.min(1, Number(r.similarity || 0))) * 100;
+    const simsHtml = sims.map(s => {
+      const cls = Number(s.delta) >= 0 ? "delta-pos" : "delta-neg";
+      return `
+        <div class="item">
+          <span>${escapeHtml(prettyFeatureName(s.feature))}</span>
+          <span class="${cls}">${escapeHtml(formatDeltaWithHint(s.feature, s.delta))}</span>
+        </div>
+      `;
+    }).join("");
+
+    const simVal = Number(r.similarity);
+    const simShown = Number.isFinite(simVal) ? simVal.toFixed(3) : "—";
+    const simPct = Number.isFinite(simVal)
+      ? (Math.max(0, Math.min(1, simVal)) * 100)
+      : 0;
 
     const card = document.createElement("div");
     card.className = "card";
@@ -191,7 +204,7 @@ function renderResults(payload) {
           <h3 class="player-name">${escapeHtml(r.player)}</h3>
           <div class="role-name">${escapeHtml(r.role_name || r.role || "—")}</div>
         </div>
-        <div class="chip">Similarity: ${Number(r.similarity).toFixed(3)}</div>
+        <div class="chip">Similarity: ${simShown}</div>
       </div>
 
       <div class="simbar"><div style="width:${simPct.toFixed(1)}%"></div></div>
@@ -205,9 +218,18 @@ function renderResults(payload) {
       <details open>
         <summary>
           <span class="summary-title">Similarities</span>
-          <span class="kicker">${shared.length ? "Shared role fingerprint" : "No role overlap"}</span>
+          <span class="kicker">
+            ${sims.length ? `Closest features (Top ${sims.length})` : (shared.length ? "Shared role fingerprint" : "No similarity info")}
+          </span>
         </summary>
-        <div class="meta" style="margin-top:10px;">${sharedHtml}</div>
+
+        ${sims.length ? `
+          <div class="list" style="margin-top:10px;">
+            ${simsHtml}
+          </div>
+        ` : `
+          <div class="meta" style="margin-top:10px;">${sharedHtml}</div>
+        `}
       </details>
 
       <details>
@@ -224,7 +246,6 @@ function renderResults(payload) {
     results.appendChild(card);
   });
 }
-
 
 // Close suggestions when clicking elsewhere
 document.addEventListener("click", (e) => {

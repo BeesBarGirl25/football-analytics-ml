@@ -214,13 +214,30 @@ def recommend():
                         continue
 
                     # biggest differences by absolute delta
+                    # deltas per feature
                     deltas = [
                         (i, float(dst_feats[i]) - float(src_feats[i]))
                         for i in range(len(src_feats))
                     ]
-                    deltas_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
-
-                    biggest = [{"feature": feat_names[i], "delta": d} for i, d in deltas_sorted]
+                    
+                    # ---- biggest differences (largest abs delta)
+                    diff_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
+                    biggest_differences = [{"feature": feat_names[i], "delta": d} for i, d in diff_sorted]
+                    
+                    # ---- greatest similarities (smallest abs delta, but not "both basically zero")
+                    min_mag = float(payload.get("sim_min_mag", 0.05))   # allow override from UI if you want
+                    sim_topk = int(payload.get("sim_topk", 8))          # allow override
+                    
+                    sim_candidates = []
+                    for i, d in deltas:
+                        src_v = float(src_feats[i])
+                        dst_v = float(dst_feats[i])
+                        if max(abs(src_v), abs(dst_v)) < min_mag:
+                            continue  # too tiny to be meaningful
+                        sim_candidates.append((i, d))
+                    
+                    sim_sorted = sorted(sim_candidates, key=lambda x: abs(x[1]))[:sim_topk]
+                    greatest_similarities = [{"feature": feat_names[i], "delta": d} for i, d in sim_sorted]
 
                     # “why similar” chips (simple but effective)
                     why_similar = []
@@ -239,6 +256,7 @@ def recommend():
                             "similarity": float(sim),
                             "why_similar": why_similar,
                             "biggest_differences": biggest,
+                            "greatest_similarities": greatest_similarities
                         }
                     )
 
