@@ -1,8 +1,8 @@
 import os
+import traceback
+
 import psycopg2
 from flask import Flask, render_template, request, jsonify
-from psycopg2.extras import execute_values
-import traceback
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
@@ -70,6 +70,15 @@ def players():
         conn.close()
 
 
+def _safe_float(x, default=0.0) -> float:
+    try:
+        if x is None:
+            return float(default)
+        return float(x)
+    except Exception:
+        return float(default)
+
+
 @app.post("/api/recommend")
 def recommend():
     try:
@@ -79,6 +88,10 @@ def recommend():
         dataset = payload.get("dataset")
         top_n = int(payload.get("top_n", 10))
         diff_topk = int(payload.get("diff_topk", 8))
+
+        # optional knobs for "greatest similarities"
+        sim_topk = int(payload.get("sim_topk", diff_topk))
+        sim_min_mag = float(payload.get("sim_min_mag", 0.05))  # ignore near-zero vs near-zero
 
         if player_key is None or dataset is None:
             return jsonify({"error": "player_key and dataset are required"}), 400
@@ -98,9 +111,10 @@ def recommend():
                 row = cur.fetchone()
                 if not row or row[0] is None:
                     return jsonify({"error": "Model version feats not found"}), 500
+
                 feat_names = row[0]  # list[str] (jsonb)
 
-                # --- Source player metadata (for similarity section)
+                # --- Source player metadata
                 cur.execute(
                     """
                     SELECT role_id, role_name, player, player_position
@@ -112,12 +126,10 @@ def recommend():
                 src_meta = cur.fetchone()
                 if not src_meta:
                     return jsonify({"error": "Source player not found"}), 404
+
                 src_role_id, src_role_name, src_player_name, src_pos = src_meta
 
-                # --- Neighbours
-                # Key upgrades:
-                # 1) Exclude exact self (key+dataset)
-                # 2) Exclude same player name across other datasets (Harry Kane -> Harry Kane wc2022 etc)
+                # --- Neighbours (exclude self; exclude same name across datasets)
                 cur.execute(
                     """
                     SELECT
@@ -143,7 +155,6 @@ def recommend():
                     """,
                     (MODEL_VERSION, player_key, dataset, src_player_name, top_n),
                 )
-
                 neigh = cur.fetchall()
 
                 # Return source even if no results
@@ -172,74 +183,89 @@ def recommend():
                     (MODEL_VERSION, player_key, dataset),
                 )
                 src_row = cur.fetchone()
-                if not src_row:
+                if not src_row or src_row[0] is None:
                     return jsonify({"error": "Source player features not found"}), 404
-                src_feats = src_row[0]  # list[float]
 
-                # --- Neighbour features (bulk fetch)
-                dst_pairs = [(r[0], r[1]) for r in neigh]
-                dst_rows = [(MODEL_VERSION, k, d) for (k, d) in dst_pairs]
+                src_feats = list(src_row[0])  # list[float]
 
-                execute_values(
-                    cur,
-                    """
+                if len(src_feats) != len(feat_names):
+                    return jsonify(
+                        {
+                            "error": (
+                                f"Feature length mismatch: "
+                                f"src_feats={len(src_feats)} feat_names={len(feat_names)}"
+                            )
+                        }
+                    ), 500
+
+                # --- Neighbour features (bulk fetch via VALUES)
+                dst_pairs = [(str(r[0]), str(r[1])) for r in neigh]  # (player_key, dataset)
+
+                # Build VALUES list safely
+                values_sql = b",".join(
+                    cur.mogrify("(%s,%s,%s)", (MODEL_VERSION, k, d)) for (k, d) in dst_pairs
+                )
+                cur.execute(
+                    b"""
                     SELECT pf.player_key, pf.dataset, pf.features
                     FROM player_features pf
-                    JOIN (VALUES %s) AS v(model_version, player_key, dataset)
+                    JOIN (VALUES
+                    """ + values_sql + b"""
+                    ) AS v(model_version, player_key, dataset)
                       ON pf.model_version = v.model_version
                      AND pf.player_key = v.player_key
                      AND pf.dataset = v.dataset
                     """,
-                    dst_rows,
-                    template="(%s, %s, %s)",
                 )
-
                 dst_feat_rows = cur.fetchall()
-                dst_feat_map = {(k, d): f for (k, d, f) in dst_feat_rows}
-
-                # Safety: feature length alignment
-                if len(src_feats) != len(feat_names):
-                    return jsonify(
-                        {
-                            "error": f"Feature length mismatch: src_feats={len(src_feats)} feat_names={len(feat_names)}"
-                        }
-                    ), 500
+                dst_feat_map = {(str(k), str(d)): f for (k, d, f) in dst_feat_rows}
 
                 results = []
 
-                # Add ranks to mimic notebook behaviour and make UI nicer
-                for rank, (dst_key, dst_dataset, sim, name, dst_role_id, dst_role_name, pos) in enumerate(neigh, start=1):
+                for rank, (dst_key, dst_dataset, sim, name, dst_role_id, dst_role_name, pos) in enumerate(
+                    neigh, start=1
+                ):
+                    dst_key = str(dst_key)
+                    dst_dataset = str(dst_dataset)
+
                     dst_feats = dst_feat_map.get((dst_key, dst_dataset))
                     if dst_feats is None:
                         continue
+                    dst_feats = list(dst_feats)
 
-                    # biggest differences by absolute delta
                     # deltas per feature
                     deltas = [
-                        (i, float(dst_feats[i]) - float(src_feats[i]))
+                        (i, _safe_float(dst_feats[i]) - _safe_float(src_feats[i]))
                         for i in range(len(src_feats))
                     ]
-                    
+
                     # ---- biggest differences (largest abs delta)
                     diff_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
-                    biggest_differences = [{"feature": feat_names[i], "delta": d} for i, d in diff_sorted]
-                    
-                    # ---- greatest similarities (smallest abs delta, but not "both basically zero")
-                    min_mag = float(payload.get("sim_min_mag", 0.05))   # allow override from UI if you want
-                    sim_topk = int(payload.get("sim_topk", 8))          # allow override
-                    
+                    biggest_differences = [
+                        {"feature": feat_names[i], "delta": float(d)} for i, d in diff_sorted
+                    ]
+
+                    # ---- greatest similarities (smallest abs delta, avoid "both ~0")
                     sim_candidates = []
                     for i, d in deltas:
-                        src_v = float(src_feats[i])
-                        dst_v = float(dst_feats[i])
-                        if max(abs(src_v), abs(dst_v)) < min_mag:
-                            continue  # too tiny to be meaningful
+                        src_v = _safe_float(src_feats[i])
+                        dst_v = _safe_float(dst_feats[i])
+                        if max(abs(src_v), abs(dst_v)) < sim_min_mag:
+                            continue
                         sim_candidates.append((i, d))
-                    
-                    sim_sorted = sorted(sim_candidates, key=lambda x: abs(x[1]))[:sim_topk]
-                    greatest_similarities = [{"feature": feat_names[i], "delta": d} for i, d in sim_sorted]
 
-                    # “why similar” chips (simple but effective)
+                    sim_sorted = sorted(sim_candidates, key=lambda x: abs(x[1]))[:sim_topk]
+                    greatest_similarities = [
+                        {"feature": feat_names[i], "delta": float(d)} for i, d in sim_sorted
+                    ]
+
+                    # fallback if everything got filtered out
+                    if not greatest_similarities:
+                        fallback = sorted(deltas, key=lambda x: abs(x[1]))[:min(sim_topk, len(deltas))]
+                        greatest_similarities = [
+                            {"feature": feat_names[i], "delta": float(d)} for i, d in fallback
+                        ]
+
                     why_similar = []
                     if int(dst_role_id) == int(src_role_id):
                         why_similar.append(f"Same role: {src_role_name}")
@@ -255,7 +281,9 @@ def recommend():
                             "player_position": pos,
                             "similarity": float(sim),
                             "why_similar": why_similar,
-                            "biggest_differences": biggest,
+                            # ✅ FIX: return the correct variable names
+                            "biggest_differences": biggest_differences,
+                            "greatest_similarities": greatest_similarities,
                         }
                     )
 
