@@ -19,7 +19,7 @@ python "$ROOT_DIR/scripts/build_and_load_recommender.py"
 
 echo ""
 echo "=== 3) BUILD TRAIT DICTIONARY ==="
-python "$ROOT_DIR/scripts/build_trait_dictionary.py"
+python "$ROOT_DIR/scripts/fill_trait_dictionary.py"
 
 echo ""
 echo "✅ All done: DB initialised, data loaded, trait dictionary populated."
