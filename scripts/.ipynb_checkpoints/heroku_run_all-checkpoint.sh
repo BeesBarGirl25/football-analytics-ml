@@ -15,7 +15,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$ROOT_DIR/scripts/init_db.sql"
 
 echo ""
 echo "=== 2) BUILD + LOAD MODEL DATA ==="
-python "$ROOT_DIR/scripts/build_and_load.py"
+python "$ROOT_DIR/scripts/build_and_load_recommender.py"
 
 echo ""
 echo "=== 3) BUILD TRAIT DICTIONARY ==="
