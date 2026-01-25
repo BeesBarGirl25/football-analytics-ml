@@ -5,7 +5,7 @@ from psycopg2.extras import execute_values, Json
 
 from football_analytics.analyses.passing.kmeans_analysis_total import (
     load_player_level_datasets,
-    collapse_to_one_profile_per_player,  # ✅ NEW: aggregate across tournaments + drop GKs
+    collapse_to_one_profile_per_player,  
     run_variant,
     build_similarity_index,
     FEATURES,

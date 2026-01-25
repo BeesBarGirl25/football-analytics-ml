@@ -54,6 +54,7 @@ def load_player_level_datasets() -> pd.DataFrame:
 
     dfs: List[pd.DataFrame] = []
     for p in files:
+        print(p)
         d = pd.read_parquet(p)
         d["dataset"] = p.stem.replace("player_level_", "")  # wc2018, euro2024, etc.
         dfs.append(d)
