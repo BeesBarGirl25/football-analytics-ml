@@ -282,3 +282,8 @@ summary::-webkit-details-marker{ display: none; }
     width: 100%;
   }
 }
+
+.trait {
+  border-bottom: 1px dotted rgba(255,255,255,0.35);
+  cursor: help;
+}

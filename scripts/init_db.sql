@@ -50,3 +50,20 @@
     
     CREATE INDEX IF NOT EXISTS idx_neigh_src
       ON player_neighbour (model_version, src_player_key, src_dataset);
+
+    CREATE TABLE IF NOT EXISTS trait_dictionary (
+      model_version TEXT NOT NULL,
+      trait TEXT NOT NULL,
+      description TEXT NOT NULL,
+      display_name TEXT,
+      category TEXT,
+      higher_means TEXT,
+      PRIMARY KEY (model_version, trait),
+      FOREIGN KEY (model_version) REFERENCES model_version(model_version)
+    );
+    
+    CREATE INDEX IF NOT EXISTS trait_dictionary_trait_idx
+      ON trait_dictionary (model_version, trait);
+    
+    CREATE INDEX IF NOT EXISTS trait_dictionary_display_idx
+      ON trait_dictionary (model_version, display_name);

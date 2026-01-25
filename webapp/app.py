@@ -3,6 +3,7 @@ import traceback
 
 import psycopg2
 from flask import Flask, render_template, request, jsonify
+from psycopg2.extras import execute_values
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 MODEL_VERSION = os.getenv("MODEL_VERSION", "passing_v1")
@@ -306,6 +307,48 @@ def recommend():
 
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+@app.get("/api/trait")
+def trait_one():
+    trait = (request.args.get("trait") or "").strip()
+    if not trait:
+        return jsonify({"error": "trait is required"}), 400
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT trait, display_name, description, category, higher_means
+                FROM trait_dictionary
+                WHERE model_version = %s AND trait = %s
+                """,
+                (MODEL_VERSION, trait),
+            )
+            row = cur.fetchone()
+
+        if not row:
+            return jsonify(
+                {
+                    "trait": trait,
+                    "display_name": None,
+                    "description": "No glossary entry yet.",
+                    "category": None,
+                    "higher_means": None,
+                }
+            )
+
+        return jsonify(
+            {
+                "trait": row[0],
+                "display_name": row[1],
+                "description": row[2],
+                "category": row[3],
+                "higher_means": row[4],
+            }
+        )
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

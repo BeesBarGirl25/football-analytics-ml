@@ -10,6 +10,48 @@ const goBtn = document.getElementById("go");
 let selected = null;
 let debounceTimer = null;
 
+const traitTooltipCache = new Map();
+
+async function getTraitTooltipText(trait) {
+  const key = String(trait || "").trim();
+  if (!key) return null;
+
+  if (traitTooltipCache.has(key)) return traitTooltipCache.get(key);
+
+  const p = (async () => {
+    const data = await safeJsonFetch(`/api/trait?trait=${encodeURIComponent(key)}`);
+    const parts = [];
+    if (data?.description) parts.push(data.description);
+    if (data?.higher_means) parts.push(`Higher means: ${data.higher_means}`);
+    return parts.join("\n") || "No glossary entry yet.";
+  })();
+
+  traitTooltipCache.set(key, p);
+
+  try {
+    const text = await p;
+    traitTooltipCache.set(key, text);
+    return text;
+  } catch (e) {
+    traitTooltipCache.delete(key);
+    return "Could not load glossary entry.";
+  }
+}
+
+document.addEventListener("mouseover", async (e) => {
+  const el = e.target.closest("[data-trait]");
+  if (!el) return;
+
+  // don't refetch if already set
+  if (el.dataset.tooltipLoaded === "1") return;
+
+  el.title = "Loading…";
+  const text = await getTraitTooltipText(el.dataset.trait);
+  if (text) el.title = text;
+  el.dataset.tooltipLoaded = "1";
+});
+
+
 function prettyFeatureName(raw) {
   const s = String(raw || "");
 
@@ -172,21 +214,27 @@ function renderResults(payload) {
       const cls = Number(d.delta) >= 0 ? "delta-pos" : "delta-neg";
       return `
         <div class="item">
-          <span>${escapeHtml(prettyFeatureName(d.feature))}</span>
+          <span class="trait" data-trait="${escapeHtml(d.feature)}" title="Loading…">
+            ${escapeHtml(prettyFeatureName(d.feature))}
+          </span>
           <span class="${cls}">${escapeHtml(formatDeltaWithHint(d.feature, d.delta))}</span>
         </div>
       `;
     }).join("");
 
+
     const simsHtml = sims.map(s => {
       const cls = Number(s.delta) >= 0 ? "delta-pos" : "delta-neg";
       return `
         <div class="item">
-          <span>${escapeHtml(prettyFeatureName(s.feature))}</span>
+          <span class="trait" data-trait="${escapeHtml(s.feature)}" title="Loading…">
+            ${escapeHtml(prettyFeatureName(s.feature))}
+          </span>
           <span class="${cls}">${escapeHtml(formatDeltaWithHint(s.feature, s.delta))}</span>
         </div>
       `;
     }).join("");
+
 
     const simVal = Number(r.similarity);
     const simShown = Number.isFinite(simVal) ? simVal.toFixed(3) : "—";
