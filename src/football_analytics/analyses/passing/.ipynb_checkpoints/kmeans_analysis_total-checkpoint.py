@@ -184,16 +184,31 @@ def build_model_df(df_raw: pd.DataFrame, features: list[str]):
     print("Jude after pos filter:", has)
     if has: print(sample.to_string(index=False))
 
-    # ---- Optional filters (probably not present post-collapse)
+    # ✅ OPTION A: only apply strict has_* filters when NOT collapsed to ALL
+    is_collapsed = (
+        ("dataset" in df.columns)
+        and df["dataset"].notna().all()
+        and df["dataset"].astype(str).eq("ALL").all()
+    )
+    print("collapsed dataset (ALL)?:", is_collapsed)
+
     if "has_minutes" in df.columns:
         before = len(df)
-        df = df[df["has_minutes"] == 1]
-        print(f"after has_minutes==1: {len(df)} (dropped {before-len(df)})")
+        if is_collapsed:
+            df = df[df["has_minutes"].fillna(0) > 0].copy()
+            print(f"after has_minutes>0 (collapsed): {len(df)} (dropped {before-len(df)})")
+        else:
+            df = df[df["has_minutes"] == 1].copy()
+            print(f"after has_minutes==1: {len(df)} (dropped {before-len(df)})")
 
     if "has_pass_events" in df.columns:
         before = len(df)
-        df = df[df["has_pass_events"] == 1]
-        print(f"after has_pass_events==1: {len(df)} (dropped {before-len(df)})")
+        if is_collapsed:
+            df = df[df["has_pass_events"].fillna(0) > 0].copy()
+            print(f"after has_pass_events>0 (collapsed): {len(df)} (dropped {before-len(df)})")
+        else:
+            df = df[df["has_pass_events"] == 1].copy()
+            print(f"after has_pass_events==1: {len(df)} (dropped {before-len(df)})")
 
     # ---- Filter 2: passes_per_90 > 0
     if "passes_per_90" in df.columns:
@@ -204,7 +219,7 @@ def build_model_df(df_raw: pd.DataFrame, features: list[str]):
             print("Jude passes_per_90 BEFORE filter:", v)
 
         before = len(df)
-        df = df[df["passes_per_90"].fillna(0) > 0]
+        df = df[df["passes_per_90"].fillna(0) > 0].copy()
         print(f"after passes_per_90>0: {len(df)} (dropped {before-len(df)})")
 
         has, sample = _has_jude(df)
@@ -224,6 +239,7 @@ def build_model_df(df_raw: pd.DataFrame, features: list[str]):
     print("=== end build_model_df DEBUG ===\n")
 
     return df.reset_index(drop=True), feats
+
 
 
 
