@@ -32,6 +32,9 @@ def _as_float_list(row) -> list[float]:
     # Ensures pure Python floats (not numpy types)
     return [float(v) for v in row]
 
+def _find_player(df, needle="bellingham"):
+    m = df["player"].astype(str).str.contains(needle, case=False, na=False)
+    return df.loc[m].copy()
 
 def main():
     # 1) Load raw datasets + collapse to ONE profile per player (across tournaments)
@@ -55,6 +58,17 @@ def main():
     X_feat_df = base["X_feat_df"].reset_index(drop=True)
     feats = base["feats"]
 
+    j = _find_player(df_roles, "bellingham")
+    print("Jude in df_roles:", len(j))
+    print(j[["player_key","dataset","player","player_position","role_id","role_name"]].head(10))
+    
+    assert len(j) == 1, f"Expected 1 Jude row in df_roles, got {len(j)}"
+    j_idx = int(j.index[0])
+    
+    print("Jude PCA row exists:", j_idx < len(X_pca_df), "shape", X_pca_df.shape)
+    print("Jude FEAT row exists:", j_idx < len(X_feat_df), "shape", X_feat_df.shape)
+
+    
     sim_index = build_similarity_index(
         df_roles=df_roles,
         X_pca_df=X_pca_df,
@@ -94,6 +108,13 @@ def main():
                 feat_rows = []
 
                 for i, r in df_roles.iterrows():
+                    if isinstance(r.get("player"), str) and "bellingham" in r["player"].lower():
+                        print("ABOUT TO INSERT JUDE:")
+                        print(" raw key:", r.get("player_key"), type(r.get("player_key")))
+                        print(" _as_int:", _as_int(r.get("player_key")))
+                        print(" dataset:", r.get("dataset"))
+                        print(" pos:", r.get("player_position"))
+
                     key = _as_int(r["player_key"])
                     dataset = str(r["dataset"])  # will be "ALL" after collapse
 
@@ -127,6 +148,10 @@ def main():
                             _as_float_list(X_feat_df.iloc[i].to_numpy()),
                         )
                     )
+                j_keys = [row for row in player_rows if "bellingham" in row[3].lower()]
+                print("Jude rows in player_rows:", len(j_keys))
+                print(j_keys[:1])
+                assert len(j_keys) == 1, "Jude not in player_rows — lost during row construction"
 
                 # 4a) player
                 execute_values(
@@ -143,6 +168,16 @@ def main():
                     """,
                     player_rows,
                 )
+                cur.execute(
+                    """
+                    SELECT player_key, dataset, player
+                    FROM player
+                    WHERE model_version=%s AND LOWER(player) LIKE '%%bellingham%%'
+                    """,
+                    (MODEL_VERSION,),
+                )
+                print("DB Jude after player insert:", cur.fetchall())
+
 
                 # 4b) player_embedding (float8[])
                 execute_values(
@@ -167,6 +202,18 @@ def main():
                     """,
                     feat_rows,
                 )
+                cur.execute(
+                    """
+                    SELECT pf.player_key, pf.dataset, array_length(pf.features, 1)
+                    FROM player_features pf
+                    JOIN player p
+                      ON p.model_version=pf.model_version AND p.player_key=pf.player_key AND p.dataset=pf.dataset
+                    WHERE pf.model_version=%s AND LOWER(p.player) LIKE '%%bellingham%%'
+                    """,
+                    (MODEL_VERSION,),
+                )
+                print("DB Jude after features insert:", cur.fetchall())
+
 
                 # 5) neighbours
                 neigh_rows = []
