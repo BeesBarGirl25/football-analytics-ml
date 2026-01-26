@@ -99,8 +99,10 @@ def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     print("before groupby")
     for player in df["player"]:
-        if "jude" in player.lower():
+        p = (player or "").lower()
+        if "jude" in p:
             print(player)
+
 
     df[num_cols] = df[num_cols].fillna(0.0)
 
@@ -115,7 +117,8 @@ def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
     print("")
     print("out")
     for player in out['player']:
-        if "jude" in player.lower():
+        p = (player or "").lower()
+        if "jude" in p:
             print(player)
     # ✅ downstream should treat this as a single profile per player
     out["dataset"] = "ALL"
