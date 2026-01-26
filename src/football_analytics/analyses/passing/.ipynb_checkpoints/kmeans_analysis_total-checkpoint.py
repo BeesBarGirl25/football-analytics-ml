@@ -97,14 +97,26 @@ def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
     if "backheels_per90" in df.columns:
         df["backheels_per90"] = df["backheels_per90"].fillna(0.0)
 
+    print("before groupby")
+    for player in df["player"]:
+        if player.toString().contains("Jude"):
+            print(player)
+
     df[num_cols] = df[num_cols].fillna(0.0)
 
     agg = {c: "mean" for c in num_cols}
     agg["player"] = _mode_or_first
+    print("")
+    print("agg[player]")
+    print(agg['player'])
     agg["player_position"] = _mode_or_first
 
     out = df.groupby("player_key", as_index=False).agg(agg)
-
+    print("")
+    print("out")
+    for player in out['player']:
+        if player.toString.contains("Jude"):
+            print(player)
     # ✅ downstream should treat this as a single profile per player
     out["dataset"] = "ALL"
     return out
