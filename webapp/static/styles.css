@@ -170,7 +170,14 @@ body{
   padding: 14px;
   box-shadow: 0 20px 50px rgba(0,0,0,0.38);
   margin-bottom: 12px;
-  overflow: visible; /* ✅ */
+  overflow: visible;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.card:hover{ border-color: rgba(255,255,255,0.22); }
+.card.active{
+  border-color: rgba(0,170,255,0.55);
+  background: rgba(18,18,30,0.90);
 }
 
 .rank-badge{
@@ -560,3 +567,335 @@ summary::-webkit-details-marker{ display: none; }
 .chip.sim-ok    { border-color: rgba(255, 210, 110, 0.40); }
 .chip.sim-low   { border-color: rgba(255, 160, 90, 0.40); }
 .chip.sim-vlow  { border-color: rgba(255, 120, 120, 0.40); }
+
+/* ============================================================
+   Card profile hint
+   ============================================================ */
+.card-profile-hint{
+  font-size: 11px;
+  color: rgba(255,255,255,0.28);
+  margin: 6px 0 2px;
+}
+.card:hover .card-profile-hint,
+.card.active .card-profile-hint{
+  color: rgba(0,170,255,0.65);
+}
+
+/* ============================================================
+   Section wrappers
+   ============================================================ */
+#section-profile,
+#section-results{
+  margin-top: 16px;
+}
+
+/* ============================================================
+   Full-width source player profile card
+   ============================================================ */
+.profile-full-card{
+  background: rgba(18, 18, 24, 0.70);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 20px 22px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.38);
+}
+
+.profile-full-header{
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.profile-full-name{
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0 0 10px;
+  letter-spacing: -0.2px;
+}
+
+.profile-full-chips{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-baseline-note{
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  padding-top: 4px;
+}
+
+.profile-loading{
+  padding: 20px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.profile-error{
+  padding: 20px;
+  color: rgba(255,120,120,0.90);
+  font-size: 13px;
+}
+
+.profile-section-label{
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: rgba(255,255,255,0.45);
+  margin: 0 0 12px;
+}
+
+/* ============================================================
+   Category summary row
+   ============================================================ */
+.cat-summary{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 20px;
+}
+
+.cat-card{
+  flex: 1;
+  min-width: 110px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.cat-pos{ border-left: 3px solid rgba(120,255,160,0.50); }
+.cat-neg{ border-left: 3px solid rgba(255,140,140,0.50); }
+
+.cat-card-name{
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.cat-card-z{
+  font-size: 20px;
+  font-weight: 750;
+  margin-bottom: 8px;
+}
+
+.cat-mini-track{
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.cat-mini-fill{
+  height: 100%;
+  border-radius: 2px;
+}
+
+.cat-feat-count{
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ============================================================
+   Z-score bar  (centred at 50%, ±3σ scale)
+   ============================================================ */
+.z-bar{
+  position: relative;
+  height: 6px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.z-center{
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: rgba(255,255,255,0.22);
+  transform: translateX(-50%);
+}
+
+.z-fill{
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+}
+
+.z-fill-pos{
+  background: linear-gradient(90deg, rgba(120,255,160,0.50), rgba(120,255,160,0.92));
+}
+
+.z-fill-neg{
+  background: linear-gradient(90deg, rgba(255,140,140,0.92), rgba(255,140,140,0.50));
+}
+
+/* cat-mini-fill inherits z-fill-pos/z-fill-neg */
+.cat-mini-fill.z-fill-pos{ background: linear-gradient(90deg, rgba(120,255,160,0.50), rgba(120,255,160,0.85)); }
+.cat-mini-fill.z-fill-neg{ background: linear-gradient(90deg, rgba(255,140,140,0.85), rgba(255,140,140,0.50)); }
+
+/* ============================================================
+   Trait sections  (grouped by category in full profile)
+   ============================================================ */
+.trait-sections{
+  display: grid;
+  gap: 20px;
+}
+
+.trait-section-title{
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: rgba(255,255,255,0.45);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  margin-bottom: 8px;
+}
+
+.trait-section-items{
+  display: grid;
+  gap: 8px;
+}
+
+/* Full-width trait row */
+.trait-row{
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 16px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  align-items: center;
+}
+
+.trait-row-left{
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trait-higher-means{
+  font-size: 11px;
+  color: rgba(255,255,255,0.48);
+  font-style: italic;
+}
+
+.trait-val-line{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.trait-val{
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.role-mean{
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trait-z-line{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.z-score-num{
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.z-pct-label{
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Responsive: collapse trait-row on narrow screens */
+@media (max-width: 680px){
+  .trait-row{
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .trait-z-line{ justify-content: flex-start; gap: 12px; }
+}
+
+/* ============================================================
+   Sidebar compact trait rows
+   ============================================================ */
+.sidebar-trait-row{
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.sidebar-trait-row:last-child{ border-bottom: none; }
+
+.sidebar-trait-header{
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.sidebar-trait-footer{
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+}
+
+/* Sidebar profile header */
+.sidebar-profile-header{
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+  margin-bottom: 12px;
+}
+
+.sidebar-profile-name{
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.sidebar-profile-sub{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sidebar-profile-role{
+  font-size: 12px;
+  color: rgba(255,255,255,0.80);
+  margin-top: 4px;
+}
+
+/* Compact cat-summary inside sidebar (smaller cards) */
+.sidebar .cat-card{
+  min-width: 80px;
+  padding: 8px 10px;
+}
+.sidebar .cat-card-z{ font-size: 15px; margin-bottom: 5px; }
+
+/* ============================================================
+   Responsive: profile full-width header collapses
+   ============================================================ */
+@media (max-width: 680px){
+  .profile-full-header{
+    flex-direction: column;
+    gap: 8px;
+  }
+  .profile-baseline-note{ text-align: left; }
+  .profile-full-name{ font-size: 20px; }
+}

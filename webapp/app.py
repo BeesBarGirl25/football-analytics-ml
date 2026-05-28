@@ -522,7 +522,14 @@ def player_profile():
                 stats[int(idx)] = (float(mean) if mean is not None else 0.0, float(std) if std is not None else 0.0)
 
             # 5) score each feature by |z|, but only where std is valid
+            cur.execute(
+                "SELECT trait, category FROM trait_dictionary WHERE model_version = %s AND category IS NOT NULL",
+                (MODEL_VERSION,),
+            )
+            trait_cats = {row[0]: row[1] for row in cur.fetchall()}
+
             scored = []
+            cat_zs = {}
             for i0, (trait, val) in enumerate(zip(feat_names, feats)):
                 idx = i0 + 1  # postgres index
                 mean, std = stats.get(idx, (0.0, 0.0))
@@ -530,6 +537,17 @@ def player_profile():
                     continue
                 z = (float(val) - float(mean)) / float(std)
                 scored.append((trait, float(val), float(mean), float(std), float(z)))
+                cat = trait_cats.get(trait)
+                if cat:
+                    cat_zs.setdefault(cat, []).append(z)
+
+            category_summary = sorted(
+                [
+                    {"category": cat, "mean_z": round(sum(zs) / len(zs), 4), "feat_count": len(zs)}
+                    for cat, zs in cat_zs.items()
+                ],
+                key=lambda x: -abs(x["mean_z"]),
+            )
 
             scored.sort(key=lambda x: abs(x[4]), reverse=True)
             scored = scored[:max(1, topk)]
@@ -584,6 +602,7 @@ def player_profile():
                 "role_name": role_name,
                 "baseline": "role",
                 "top_traits": enriched,
+                "category_summary": category_summary,
             }
         )
     finally:
