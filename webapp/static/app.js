@@ -373,6 +373,37 @@ function renderFullProfile(prof) {
   patchRenderedTraitElements();
 }
 
+// Render a full profile into any element (used by player.html and compare.js)
+function renderFullProfileInto(el, prof) {
+  const top = prof.top_traits || [];
+  const { byCategory, uncategorized } = groupByCategory(top);
+
+  const sections = [
+    ...Object.entries(byCategory).map(([cat, traits]) => traitSectionHtml(cat, traits, "full")),
+    ...(uncategorized.length ? [traitSectionHtml("Other", uncategorized, "full")] : []),
+  ].join("");
+
+  el.innerHTML = `
+    <div class="profile-full-header">
+      <div>
+        <div class="profile-full-name">${escapeHtml(prof.player || "—")}</div>
+        <div class="profile-full-chips">
+          <span class="chip">${escapeHtml(prof.dataset || "—")}</span>
+          <span class="chip">${escapeHtml(prof.player_position || "—")}</span>
+          <span class="chip">${escapeHtml(prof.role_name || "—")}</span>
+        </div>
+      </div>
+      <div class="profile-baseline-note">Traits ranked by deviation from role peers</div>
+    </div>
+    ${categorySummaryHtml(prof.category_summary || [])}
+    <div class="profile-section-label">Standout traits vs role peers</div>
+    <div class="trait-sections">
+      ${sections || `<div class="profile-note">No trait data available.</div>`}
+    </div>`;
+
+  patchRenderedTraitElements();
+}
+
 // ============================================================
 // Sidebar comparison profile (clicked result)
 // ============================================================

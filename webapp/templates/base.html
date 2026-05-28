@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{% block title %}Football Analytics{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='sidebar.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- Collapse / expand toggle -->
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle navigation">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="13 17 18 12 13 7"></polyline>
+        <polyline points="6 17 11 12 6 7"></polyline>
+      </svg>
+    </button>
+
+    <!-- Brand -->
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-icon">⚽</div>
+      <span class="sidebar-brand-text">Football Analytics</span>
+    </div>
+
+    <!-- Nav items -->
+    <nav class="sidebar-nav">
+
+      <a href="/"
+         class="nav-item {% if active_page == 'discover' %}active{% endif %}"
+         data-label="Discover"
+         id="nav-discover">
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </span>
+        <span class="nav-label">Discover</span>
+      </a>
+
+      <a href="#"
+         class="nav-item {% if active_page == 'profile' %}active{% endif %}"
+         data-label="Profile"
+         id="nav-profile">
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </span>
+        <span class="nav-label">Profile</span>
+      </a>
+
+      <a href="#"
+         class="nav-item {% if active_page == 'compare' %}active{% endif %}"
+         data-label="Compare"
+         id="nav-compare">
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+        </span>
+        <span class="nav-label">Compare</span>
+      </a>
+
+      <a href="/leaderboard"
+         class="nav-item nav-item-soon {% if active_page == 'leaderboard' %}active{% endif %}"
+         data-label="Leaderboard"
+         id="nav-leaderboard">
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+        </span>
+        <span class="nav-label">Leaderboard <span class="soon-badge">Soon</span></span>
+      </a>
+
+      <a href="/competitions"
+         class="nav-item nav-item-soon {% if active_page == 'competitions' %}active{% endif %}"
+         data-label="Competitions"
+         id="nav-competitions">
+        <span class="nav-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+        </span>
+        <span class="nav-label">Competitions <span class="soon-badge">Soon</span></span>
+      </a>
+
+    </nav>
+  </aside>
+
+  <!-- ── Page content ─────────────────────────────────────────────────────── -->
+  <main class="main-content" id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ── Page scripts ─────────────────────────────────────────────────────── -->
+  {% block scripts %}{% endblock %}
+
+  <!-- ── Sidebar script (no dependencies) ─────────────────────────────────── -->
+  <script>
+    (function () {
+      const EXPANDED_KEY    = 'fa-sidebar-expanded';
+      const LAST_PROFILE    = 'fa-last-profile-url';
+      const LAST_COMPARE    = 'fa-last-compare-url';
+      const toggle          = document.getElementById('sidebar-toggle');
+      const navProfile      = document.getElementById('nav-profile');
+      const navCompare      = document.getElementById('nav-compare');
+
+      // Restore sidebar state
+      if (localStorage.getItem(EXPANDED_KEY) === 'true') {
+        document.body.classList.add('sidebar-expanded');
+      }
+
+      // Toggle
+      toggle.addEventListener('click', function () {
+        const expanded = document.body.classList.toggle('sidebar-expanded');
+        localStorage.setItem(EXPANDED_KEY, expanded);
+      });
+
+      // Wire up Profile / Compare nav items from localStorage
+      const lastProfile = localStorage.getItem(LAST_PROFILE);
+      if (lastProfile) navProfile.href = lastProfile;
+
+      const lastCompare = localStorage.getItem(LAST_COMPARE);
+      if (lastCompare) navCompare.href = lastCompare;
+
+      // Save current page URL for context-sensitive nav items
+      const path = window.location.pathname;
+      if (path.startsWith('/player/')) {
+        localStorage.setItem(LAST_PROFILE, window.location.href);
+      }
+      if (path.startsWith('/compare')) {
+        localStorage.setItem(LAST_COMPARE, window.location.href);
+      }
+    })();
+  </script>
+
+</body>
+</html>

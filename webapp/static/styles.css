@@ -287,14 +287,41 @@ summary::-webkit-details-marker{ display: none; }
   align-items: start;
 }
 
-/* keep your existing .results-wrap margin-top:16px; but now it's inside the grid */
 .results-layout .results-wrap{
   margin-top: 0;
 }
 
-/* Sidebar */
-.sidebar{
+/* Results sidebar wrapper (distinct from the nav sidebar) */
+.sidebar-card-wrap{
   position: relative;
+}
+
+/* ============================================================
+   Coming-soon placeholder cards
+   ============================================================ */
+.coming-soon-card{
+  margin-top: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 60px 40px;
+  background: rgba(18,18,24,0.60);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  text-align: center;
+}
+.coming-soon-icon{ opacity: 0.6; }
+.coming-soon-title{
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.70);
+}
+.coming-soon-desc{
+  font-size: 14px;
+  color: rgba(255,255,255,0.40);
+  max-width: 480px;
+  line-height: 1.6;
 }
 
 .sidebar-card{

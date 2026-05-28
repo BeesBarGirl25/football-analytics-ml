@@ -1,0 +1,203 @@
+/* ── CSS variables ───────────────────────────────────────────────────────────── */
+:root {
+  --sb-collapsed: 64px;
+  --sb-expanded:  220px;
+  --sb-w:         var(--sb-collapsed);
+  --sb-bg:        rgba(10, 10, 16, 0.97);
+  --sb-border:    rgba(255,255,255,0.07);
+  --sb-accent:    rgba(0,170,255,0.90);
+  --sb-text:      rgba(255,255,255,0.55);
+  --sb-text-act:  rgba(255,255,255,0.95);
+  --sb-hover-bg:  rgba(255,255,255,0.05);
+  --sb-active-bg: rgba(0,170,255,0.12);
+  --transition:   200ms ease;
+}
+
+body.sidebar-expanded { --sb-w: var(--sb-expanded); }
+
+/* ── Sidebar shell ───────────────────────────────────────────────────────────── */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 100vh;
+  width: var(--sb-w);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+  overflow: hidden;
+  transition: width var(--transition);
+  backdrop-filter: blur(12px);
+}
+
+/* ── Toggle button ───────────────────────────────────────────────────────────── */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sb-collapsed);
+  height: 56px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--sb-text);
+  transition: color var(--transition), background var(--transition);
+}
+.sidebar-toggle:hover { color: var(--sb-text-act); background: var(--sb-hover-bg); }
+.sidebar-toggle svg { transition: transform var(--transition); }
+body.sidebar-expanded .sidebar-toggle svg { transform: rotate(180deg); }
+
+/* ── Brand ───────────────────────────────────────────────────────────────────── */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 20px 0;
+  border-bottom: 1px solid var(--sb-border);
+  margin: 0 12px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebar-brand-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,170,255,0.12);
+  border: 1px solid rgba(0,170,255,0.25);
+  border-radius: 10px;
+  font-size: 18px;
+}
+
+.sidebar-brand-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--sb-text-act);
+  letter-spacing: 0.2px;
+  opacity: 0;
+  transition: opacity var(--transition);
+  white-space: nowrap;
+}
+body.sidebar-expanded .sidebar-brand-text { opacity: 1; }
+
+/* ── Nav ─────────────────────────────────────────────────────────────────────── */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px;
+  flex: 1;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 44px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--sb-text);
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+}
+
+.nav-item:hover {
+  background: var(--sb-hover-bg);
+  color: var(--sb-text-act);
+}
+
+.nav-item.active {
+  background: var(--sb-active-bg);
+  color: var(--sb-accent);
+}
+
+.nav-item.active .nav-icon svg { stroke: var(--sb-accent); }
+
+.nav-item-soon {
+  opacity: 0.50;
+  cursor: default;
+  pointer-events: none;
+}
+body.sidebar-expanded .nav-item-soon {
+  pointer-events: auto; /* allow hover to see "soon" badge in expanded */
+  cursor: default;
+}
+
+.nav-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-label {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity var(--transition);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+body.sidebar-expanded .nav-label { opacity: 1; }
+
+/* ── "Soon" badge ────────────────────────────────────────────────────────────── */
+.soon-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.50);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+/* ── Collapsed tooltip ───────────────────────────────────────────────────────── */
+/* Show nav item title as tooltip when collapsed */
+.nav-item::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(var(--sb-collapsed) + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(10,10,16,0.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.90);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 100ms ease;
+  z-index: 300;
+}
+.nav-item:hover::after { opacity: 1; }
+body.sidebar-expanded .nav-item::after { display: none; }
+
+/* ── Main content area ───────────────────────────────────────────────────────── */
+.main-content {
+  margin-left: var(--sb-w);
+  min-height: 100vh;
+  transition: margin-left var(--transition);
+}
+
+/* ── Responsive — hide sidebar on very small screens ─────────────────────────── */
+@media (max-width: 500px) {
+  .sidebar { display: none; }
+  .main-content { margin-left: 0; }
+}

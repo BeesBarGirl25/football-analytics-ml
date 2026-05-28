@@ -19,23 +19,35 @@ def get_conn():
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", active_page="discover")
 
 
 @app.get("/player/<player_key>/<dataset>")
 def player_page(player_key, dataset):
-    return render_template("player.html", player_key=player_key, dataset=dataset)
+    return render_template("player.html", active_page="profile",
+                           player_key=player_key, dataset=dataset)
 
 
 @app.get("/compare")
 def compare_page():
     return render_template(
         "compare.html",
+        active_page="compare",
         src_key=request.args.get("src_key", ""),
         src_dataset=request.args.get("src_dataset", ""),
         dst_key=request.args.get("dst_key", ""),
         dst_dataset=request.args.get("dst_dataset", ""),
     )
+
+
+@app.get("/leaderboard")
+def leaderboard_page():
+    return render_template("leaderboard.html", active_page="leaderboard")
+
+
+@app.get("/competitions")
+def competitions_page():
+    return render_template("competitions.html", active_page="competitions")
 
 
 @app.get("/api/players")

@@ -1,64 +1,58 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Football Analytics</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-</head>
-<body>
-  <div class="page">
-    <header class="header">
-      <h1>Football Analytics</h1>
-      <p class="sub">Search a player to explore their profile and find similar players across tournaments.</p>
-    </header>
+{% extends "base.html" %}
+{% block title %}Discover — Football Analytics{% endblock %}
 
-    <section class="panel">
-      <div class="controls">
-        <div class="search-wrap">
-          <label class="label" for="search">Player</label>
-          <input id="search" class="input" type="text" placeholder="Start typing a name…" autocomplete="off" />
-          <div id="suggestions" class="suggestions hidden" aria-label="Suggestions"></div>
-        </div>
-        <div class="control">
-          <label class="label" for="top_n">Top N</label>
-          <input id="top_n" class="input" type="number" min="1" max="100" value="10" />
-        </div>
-        <div class="control">
-          <label class="label" for="diff_topk">Diff TopK</label>
-          <input id="diff_topk" class="input" type="number" min="1" max="25" value="8" />
-        </div>
-        <div class="control">
-          <label class="label label-spacer"> </label>
-          <button id="go" class="btn" type="button">Find Similar</button>
-        </div>
+{% block content %}
+<div class="page">
+  <header class="header">
+    <h1>Discover</h1>
+    <p class="sub">Search a player to explore their profile and find similar players across tournaments.</p>
+  </header>
+
+  <section class="panel">
+    <div class="controls">
+      <div class="search-wrap">
+        <label class="label" for="search">Player</label>
+        <input id="search" class="input" type="text" placeholder="Start typing a name…" autocomplete="off"/>
+        <div id="suggestions" class="suggestions hidden" aria-label="Suggestions"></div>
       </div>
-      <div id="status" class="status hidden"></div>
-    </section>
+      <div class="control">
+        <label class="label" for="top_n">Top N</label>
+        <input id="top_n" class="input" type="number" min="1" max="100" value="10"/>
+      </div>
+      <div class="control">
+        <label class="label" for="diff_topk">Diff TopK</label>
+        <input id="diff_topk" class="input" type="number" min="1" max="25" value="8"/>
+      </div>
+      <div class="control">
+        <label class="label label-spacer"> </label>
+        <button id="go" class="btn" type="button">Find Similar</button>
+      </div>
+    </div>
+    <div id="status" class="status hidden"></div>
+  </section>
 
-    <!-- Full-width source player profile — shown immediately on selection -->
-    <section id="section-profile" class="hidden">
-      <div id="profile-full" class="profile-full-card"></div>
-    </section>
+  <section id="section-profile" class="hidden">
+    <div id="profile-full" class="profile-full-card"></div>
+  </section>
 
-    <!-- Results + comparison sidebar — shown after Find Similar -->
-    <section id="section-results" class="hidden">
-      <div class="results-layout">
-        <div class="results-wrap">
-          <div id="results"></div>
-        </div>
-        <aside class="sidebar">
-          <div class="sidebar-card">
-            <h2 class="sidebar-title">Comparison profile</h2>
-            <div id="profile-sidebar" class="profile muted">
-              Click a result card to compare profiles.
-            </div>
+  <section id="section-results" class="hidden">
+    <div class="results-layout">
+      <div class="results-wrap">
+        <div id="results"></div>
+      </div>
+      <aside class="sidebar-card-wrap">
+        <div class="sidebar-card">
+          <h2 class="sidebar-title">Comparison profile</h2>
+          <div id="profile-sidebar" class="profile muted">
+            Click a result card to compare profiles.
           </div>
-        </aside>
-      </div>
-    </section>
-  </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+</div>
+{% endblock %}
 
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
-</body>
-</html>
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}
