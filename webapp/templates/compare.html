@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Player Comparison</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='compare.css') }}">
+</head>
+<body>
+  <div class="page">
+
+    <header class="compare-header">
+      <a id="back-link" href="/" class="back-link">← Results</a>
+    </header>
+
+    <div id="compare-root">
+      <div class="profile-loading">Loading comparison…</div>
+    </div>
+
+  </div>
+
+  <script>
+    const SRC_KEY     = {{ src_key     | tojson }};
+    const SRC_DATASET = {{ src_dataset | tojson }};
+    const DST_KEY     = {{ dst_key     | tojson }};
+    const DST_DATASET = {{ dst_dataset | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='compare.js') }}"></script>
+</body>
+</html>

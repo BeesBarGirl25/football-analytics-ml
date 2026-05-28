@@ -69,43 +69,106 @@ def _clean_tokens(name: str) -> list[str]:
     return [t for t in re.split(r"[_\s]+", name.strip()) if t]
 
 
-def _category(name: str, tokens: list[str]) -> str:
-    # 👇 more specific categories first
-    if name.startswith("pass_angle_mean_") or name.startswith("pass_angle_var_"):
-        return "Direction"
-    if name.startswith("pct_pass_") and ("to" in tokens):
-        return "Field progression"
-    if name.startswith("pct_pass_from_") or name.startswith("pct_pass_to_"):
-        return "Field progression"
-    if name.startswith("pct_pass_") and ("left" in tokens or "right" in tokens or "centre" in tokens or "central" in tokens):
-        return "Switch / width"
-    if name in {"avg_pass_length", "std_pass_length"}:
-        return "Pass length"
-    if "throughballs" in tokens:
-        return "Final ball"
-    if "switches" in tokens:
-        return "Switch / width"
+# Six football-literate categories used across the UI and radar chart.
+# Order matters — the radar renders them in this sequence (clockwise from top).
+RADAR_CATEGORY_ORDER = ["Volume", "Progression", "Creativity", "Width", "Distribution", "Style"]
 
-    # 👇 existing logic
-    if name.startswith("pct_"):
-        return "Share / % breakdown"
-    if name.endswith("_per90") or "per90" in tokens:
-        return "Volume per 90"
-    if name.startswith("ttl_") or "total" in tokens:
-        return "Total volume"
-    if "pressure" in tokens:
-        return "Pressure"
-    if "final" in tokens or "third" in tokens or "box" in tokens:
-        return "Field progression"
-    if "high" in tokens or "medium" in tokens or "low" in tokens or "ground" in tokens:
-        return "Pass height"
-    if "long" in tokens or "short" in tokens:
-        return "Pass length"
-    if "switch" in tokens or "wide" in tokens:
-        return "Switch / width"
-    if "angle" in tokens or "direction" in tokens:
-        return "Direction"
-    return "General"
+# Explicit per-feature overrides (highest precedence).
+_EXPLICIT_CATEGORY: dict[str, str] = {
+    # ── Volume ────────────────────────────────────────────────────────────────
+    "passes_per_90":               "Volume",
+    "short_passes_per_90":         "Volume",
+    "medium_passes_per_90":        "Volume",
+    "long_passes_per_90":          "Volume",
+    "passes_under_pressure_per90": "Volume",
+    "pct_passes_under_pressure":   "Volume",
+    # ── Progression ───────────────────────────────────────────────────────────
+    "pct_progressive_passes":  "Progression",
+    "pct_lateral_passes":      "Progression",
+    "pct_defensive_passes":    "Progression",
+    "pct_pass_def_to_mid":     "Progression",
+    "pct_pass_def_to_att":     "Progression",
+    "pct_pass_mid_to_att":     "Progression",
+    "pct_pass_mid_to_mid":     "Progression",
+    "pct_pass_att_to_mid":     "Progression",
+    "pct_pass_def_to_def":     "Progression",
+    "pct_pass_att_to_att":     "Progression",
+    "pct_pass_to_def_third":   "Progression",
+    "pct_pass_to_mid_third":   "Progression",
+    # ── Creativity ────────────────────────────────────────────────────────────
+    "crosses_per90":            "Creativity",
+    "throughballs_per90":       "Creativity",
+    "cutbacks_per90":           "Creativity",
+    "backheels_per90":          "Creativity",
+    "key_passes_per90":         "Creativity",
+    "assists_per90":            "Creativity",
+    "pct_passes_final_third":   "Creativity",
+    "pct_passes_into_box":      "Creativity",
+    "pct_pass_wide_to_box":     "Creativity",
+    "pct_pass_centre_to_box":   "Creativity",
+    "pct_pass_def_to_box":      "Creativity",
+    # ── Width ─────────────────────────────────────────────────────────────────
+    "switches_per90":           "Width",
+    "pct_pass_left_to_centre":  "Width",
+    "pct_pass_left_to_right":   "Width",
+    "pct_pass_right_to_centre": "Width",
+    "pct_pass_right_to_left":   "Width",
+    "pct_pass_centre_to_left":  "Width",
+    "pct_pass_centre_to_right": "Width",
+    # ── Style ─────────────────────────────────────────────────────────────────
+    "avg_pass_length":      "Style",
+    "std_pass_length":      "Style",
+    "pct_short_pass":       "Style",
+    "pct_med_pass":         "Style",
+    "pct_long_pass":        "Style",
+    "pct_ground_pass":      "Style",
+    "pct_low_pass":         "Style",
+    "pct_high_pass":        "Style",
+    "pct_left_foot_pass":   "Style",
+    "pct_right_foot_pass":  "Style",
+    "pct_head_pass":        "Style",
+    "pct_foot_pass":        "Style",
+    "pct_other_pass":       "Style",
+    "pct_keeper_arm_pass":  "Style",
+}
+
+
+def _category(name: str, tokens: list[str]) -> str:
+    if name in _EXPLICIT_CATEGORY:
+        return _EXPLICIT_CATEGORY[name]
+
+    # Direction bucket features (F/FR/R/BR/B/BL/L/FL) → Style
+    if RE_PCT_PASSES_DIR.match(name) or RE_TTL_PASSES_DIR.match(name) or RE_PASSES_DIR_PER90.match(name):
+        return "Style"
+    # Direction/angle features → Style
+    if name.startswith("pass_angle_"):
+        return "Style"
+    # ttl_ pass direction totals → Volume
+    if name.startswith("ttl_passes_"):
+        return "Volume"
+    # Where the ball originates (from_third, from_channel) → Distribution
+    if RE_PASS_FROM_THIRD.match(name) or RE_PASS_FROM_CHANNEL.match(name):
+        return "Distribution"
+    # Where the ball goes (to_channel) → Distribution
+    if RE_PASS_TO_CHANNEL.match(name):
+        return "Distribution"
+    # Zone origin/destination → Distribution
+    if "zone" in name:
+        return "Distribution"
+    # Third-to-third transitions → Progression
+    if RE_PASS_THIRD_TO_THIRD.match(name):
+        return "Progression"
+    # to_third → Progression
+    if RE_PASS_TO_THIRD.match(name):
+        return "Progression"
+    # Channel-to-channel shifts → Width
+    if RE_PASS_CHAN_TO_CHAN.match(name):
+        return "Width"
+    # Remaining per90 / total → Volume
+    if name.endswith("_per90") or name.startswith("ttl_"):
+        return "Volume"
+
+    return "Style"  # angle/misc fallback
 
 
 def _infer_display_name(trait: str) -> str:

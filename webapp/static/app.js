@@ -362,6 +362,12 @@ function renderFullProfile(prof) {
     <div class="profile-section-label">Standout traits vs role peers</div>
     <div class="trait-sections">
       ${sections || `<div class="profile-note">No trait data available.</div>`}
+    </div>
+    <div class="profile-full-footer">
+      <a class="cmp-profile-link"
+         href="/player/${encodeURIComponent(prof.player_key)}/${encodeURIComponent(prof.dataset)}">
+        View full profile page →
+      </a>
     </div>`;
 
   patchRenderedTraitElements();
@@ -485,7 +491,7 @@ function renderResults(payload) {
         <span class="chip">${escapeHtml(r.player_position || "—")}</span>
         ${shared.length ? `<span class="chip">Role match</span>` : ""}
       </div>
-      <div class="card-profile-hint">Click to view profile →</div>
+      <div class="card-profile-hint">Click card to compare →</div>
       <details open>
         <summary>
           <span class="summary-title">Similarities</span>
@@ -506,10 +512,9 @@ function renderResults(payload) {
       </details>`;
 
     card.addEventListener("click", e => {
-      if (e.target.closest("summary") || e.target.closest(".trait")) return;
-      document.querySelectorAll(".card.active").forEach(c => c.classList.remove("active"));
-      card.classList.add("active");
-      loadAndRenderSidebarProfile(r.player_key, r.dataset);
+      if (e.target.closest("summary") || e.target.closest(".trait") || e.target.closest("a")) return;
+      const url = `/compare?src_key=${encodeURIComponent(selected.player_key)}&src_dataset=${encodeURIComponent(selected.dataset)}&dst_key=${encodeURIComponent(r.player_key)}&dst_dataset=${encodeURIComponent(r.dataset)}`;
+      window.location.href = url;
     });
 
     results.appendChild(card);

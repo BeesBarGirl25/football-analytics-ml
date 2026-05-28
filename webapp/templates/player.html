@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Player Profile</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <a href="/" class="back-link">← Search</a>
+    </header>
+
+    <div id="player-root">
+      <div class="profile-loading">Loading profile…</div>
+    </div>
+  </div>
+
+  <script>
+    const PLAYER_KEY = {{ player_key | tojson }};
+    const DATASET    = {{ dataset    | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    // Mount full profile into #player-root on page load
+    (async () => {
+      const root = document.getElementById("player-root");
+      try {
+        const prof = await safeJsonFetch(
+          `/api/player_profile?player_key=${encodeURIComponent(PLAYER_KEY)}&dataset=${encodeURIComponent(DATASET)}&topk=200`
+        );
+        document.title = (prof.player || "Player") + " — Profile";
+        await ensureTraitMeta((prof.top_traits || []).map(t => t.trait));
+
+        // Render full profile into root
+        const card = document.createElement("div");
+        card.className = "profile-full-card";
+        root.innerHTML = "";
+        root.appendChild(card);
+
+        // Inject profile HTML
+        const tmpEl = { innerHTML: "" };
+        profileFullEl && (profileFullEl.innerHTML = "");
+
+        // Reuse renderFullProfile but target #player-root
+        renderFullProfileInto(card, prof);
+
+        // "Find similar" button
+        const btn = document.createElement("a");
+        btn.className = "btn find-similar-btn";
+        btn.href = `/?src_key=${encodeURIComponent(PLAYER_KEY)}&src_dataset=${encodeURIComponent(DATASET)}`;
+        btn.textContent = "Find similar players →";
+        card.appendChild(btn);
+
+      } catch (err) {
+        root.innerHTML = `<div class="profile-error">Could not load profile: ${err.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

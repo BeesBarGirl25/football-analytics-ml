@@ -22,6 +22,22 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/player/<player_key>/<dataset>")
+def player_page(player_key, dataset):
+    return render_template("player.html", player_key=player_key, dataset=dataset)
+
+
+@app.get("/compare")
+def compare_page():
+    return render_template(
+        "compare.html",
+        src_key=request.args.get("src_key", ""),
+        src_dataset=request.args.get("src_dataset", ""),
+        dst_key=request.args.get("dst_key", ""),
+        dst_dataset=request.args.get("dst_dataset", ""),
+    )
+
+
 @app.get("/api/players")
 def players():
     q = (request.args.get("q") or "")
