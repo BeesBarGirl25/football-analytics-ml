@@ -129,6 +129,39 @@ def recommend():
 
                 src_role_id, src_role_name, src_player_name, src_pos = src_meta
 
+                # --- Role stds for source player (used to normalise deltas → significance)
+                cur.execute(
+                    """
+                    WITH role_players AS (
+                        SELECT pf.features
+                        FROM player_features pf
+                        JOIN player p
+                          ON p.model_version = pf.model_version
+                         AND p.player_key    = pf.player_key
+                         AND p.dataset       = pf.dataset
+                        WHERE pf.model_version = %s AND p.role_id = %s
+                    ),
+                    role_stats AS (
+                        SELECT i AS idx, STDDEV_POP((features)[i]) AS std
+                        FROM role_players, generate_subscripts(features, 1) AS i
+                        GROUP BY i
+                    )
+                    SELECT idx, std FROM role_stats ORDER BY idx
+                    """,
+                    (MODEL_VERSION, src_role_id),
+                )
+                _min_role_std = 1e-6
+                _role_stds = {
+                    int(idx) - 1: (float(std) if std is not None else 0.0)
+                    for idx, std in cur.fetchall()
+                }
+
+                def _dz(i, delta):
+                    std = _role_stds.get(i, 0.0)
+                    if std < _min_role_std:
+                        return None
+                    return round(delta / std, 4)
+
                 # --- Neighbours (exclude self; exclude same name across datasets)
                 cur.execute(
                     """
@@ -242,7 +275,8 @@ def recommend():
                     # ---- biggest differences (largest abs delta)
                     diff_sorted = sorted(deltas, key=lambda x: abs(x[1]), reverse=True)[:diff_topk]
                     biggest_differences = [
-                        {"feature": feat_names[i], "delta": float(d)} for i, d in diff_sorted
+                        {"feature": feat_names[i], "delta": float(d), "delta_z": _dz(i, d)}
+                        for i, d in diff_sorted
                     ]
 
                     # ---- greatest similarities (smallest abs delta, avoid "both ~0")
@@ -256,14 +290,16 @@ def recommend():
 
                     sim_sorted = sorted(sim_candidates, key=lambda x: abs(x[1]))[:sim_topk]
                     greatest_similarities = [
-                        {"feature": feat_names[i], "delta": float(d)} for i, d in sim_sorted
+                        {"feature": feat_names[i], "delta": float(d), "delta_z": _dz(i, d)}
+                        for i, d in sim_sorted
                     ]
 
                     # fallback if everything got filtered out
                     if not greatest_similarities:
                         fallback = sorted(deltas, key=lambda x: abs(x[1]))[:min(sim_topk, len(deltas))]
                         greatest_similarities = [
-                            {"feature": feat_names[i], "delta": float(d)} for i, d in fallback
+                            {"feature": feat_names[i], "delta": float(d), "delta_z": _dz(i, d)}
+                            for i, d in fallback
                         ]
 
                     why_similar = []

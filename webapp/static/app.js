@@ -63,6 +63,47 @@ function formatDelta(feature, delta) {
   return `${sign}${d.toFixed(3)}${hint ? " " + hint : ""}`;
 }
 
+// Human-readable delta: unit-aware, no raw decimals
+function formatDeltaReadable(feature, delta) {
+  const d    = Number(delta);
+  const sign = d >= 0 ? "+" : "";
+  const n    = String(feature || "");
+
+  if (n.startsWith("pct_"))
+    return `${sign}${(d * 100).toFixed(1)}pp`;
+  if (n.endsWith("_per90") || n.includes("_per90") || n.endsWith("per_90"))
+    return `${sign}${d.toFixed(2)} per 90`;
+  if (n.includes("angle"))
+    return `${sign}${d.toFixed(1)}°`;
+  if (n.startsWith("ttl_"))
+    return `${sign}${Math.round(d)}`;
+  if (n.startsWith("avg_") || n.startsWith("std_"))
+    return `${sign}${d.toFixed(2)}`;
+  return `${sign}${d.toFixed(3)}`;
+}
+
+// Scouting tier from z-score vs role average
+function tierFromZ(z) {
+  const n = Number(z);
+  if (n >=  2.0) return { label: "Elite",         cls: "tier-elite" };
+  if (n >=  1.0) return { label: "Above average",  cls: "tier-high"  };
+  if (n >=  0.3) return { label: "Slightly above", cls: "tier-good"  };
+  if (n >= -0.3) return { label: "Average",        cls: "tier-avg"   };
+  if (n >= -1.0) return { label: "Slightly below", cls: "tier-low"   };
+  if (n >= -2.0) return { label: "Below average",  cls: "tier-poor"  };
+  return           { label: "Weak",                cls: "tier-weak"  };
+}
+
+// How significant is the gap between two players (in role σ units)
+function deltaSignificance(deltaZ) {
+  if (deltaZ == null) return null;
+  const abs = Math.abs(Number(deltaZ));
+  if (abs >= 2.0) return { label: "Major",      cls: "sig-major"    };
+  if (abs >= 1.0) return { label: "Significant", cls: "sig-notable"  };
+  if (abs >= 0.5) return { label: "Noticeable",  cls: "sig-mild"     };
+  return                  { label: "Marginal",   cls: "sig-marginal" };
+}
+
 function featureUnitHint(name) {
   const n = String(name || "");
   if (n.includes("angle"))                            return "deg";
@@ -221,6 +262,7 @@ function traitRowHtml(t, mode) {
     ? `<span class="role-mean">Role avg: ${formatVal(t.role_mean)}</span>` : "";
 
   if (mode === "full") {
+    const tier = tierFromZ(z);
     const higherMeans = t.higher_means
       ? `<div class="trait-higher-means">${escapeHtml(t.higher_means)}</div>` : "";
     return `
@@ -235,25 +277,26 @@ function traitRowHtml(t, mode) {
         </div>
         <div class="trait-row-right">
           <div class="trait-z-line">
-            <span class="${isPos ? "z-pos" : "z-neg"} z-score-num">${formatZ(z)}</span>
+            <span class="tier-badge ${tier.cls}">${tier.label}</span>
             <span class="z-pct-label">${pctile}th %ile</span>
           </div>
           ${zBarHtml(z)}
+          <div class="z-score-secondary">${formatZ(z)}</div>
         </div>
       </div>`;
   }
 
   // sidebar: compact
+  const tier = tierFromZ(z);
   return `
     <div class="sidebar-trait-row">
       <div class="sidebar-trait-header">
         <span class="trait" data-trait="${escapeHtml(key)}" title="${tip}">${escapeHtml(label)}</span>
-        <span class="${isPos ? "z-pos" : "z-neg"} z-score-num">${formatZ(z)}</span>
+        <span class="tier-badge ${tier.cls} tier-sm">${tier.label}</span>
       </div>
       ${zBarHtml(z)}
       <div class="sidebar-trait-footer">
-        <span class="role-mean">${escapeHtml(t.direction_vs_role || (isPos ? "higher" : "lower"))} vs role</span>
-        <span class="z-pct-label">${pctile}th %ile</span>
+        <span class="role-mean">${escapeHtml(t.direction_vs_role || (isPos ? "higher" : "lower"))} vs role · ${pctile}th %ile</span>
       </div>
     </div>`;
 }
@@ -381,13 +424,29 @@ function simBucket(sim) {
 }
 
 function deltaItemHtml(d) {
-  const cls   = Number(d.delta) >= 0 ? "delta-pos" : "delta-neg";
-  const label = labelForTrait(d.feature);
-  const tip   = escapeHtml(tooltipForTrait(d.feature) || "Loading…");
+  const isPos  = Number(d.delta) >= 0;
+  const cls    = isPos ? "delta-pos" : "delta-neg";
+  const label  = labelForTrait(d.feature);
+  const tip    = escapeHtml(tooltipForTrait(d.feature) || "Loading…");
+  const valStr = formatDeltaReadable(d.feature, d.delta);
+  const meta   = TRAIT_META.get(String(d.feature || "").trim());
+  const sig    = deltaSignificance(d.delta_z);
+
+  const higherMeansHtml = meta?.higher_means
+    ? `<div class="delta-higher-means">${escapeHtml(meta.higher_means)}</div>` : "";
+  const sigHtml = sig
+    ? `<span class="delta-sig ${sig.cls}">${sig.label}</span>` : "";
+
   return `
     <div class="item">
-      <span class="trait" data-trait="${escapeHtml(d.feature)}" title="${tip}">${escapeHtml(label)}</span>
-      <span class="${cls}">${escapeHtml(formatDelta(d.feature, d.delta))}</span>
+      <div class="item-left">
+        <span class="trait" data-trait="${escapeHtml(d.feature)}" title="${tip}">${escapeHtml(label)}</span>
+        ${higherMeansHtml}
+      </div>
+      <div class="item-right">
+        <span class="${cls} delta-val">${escapeHtml(valStr)}</span>
+        ${sigHtml}
+      </div>
     </div>`;
 }
 
