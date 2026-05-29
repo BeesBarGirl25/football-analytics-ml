@@ -544,40 +544,104 @@ function attachCategoryAccordionHandlers(root) {
 }
 
 // ============================================================
-// Reusable player search (profile + compare pages)
+// Filter panel — fetches options once, renders selects, calls onChange
 // ============================================================
-function initPlayerSearch(inputEl, suggestionsEl, onSelect) {
+let _filterOptsCache = null;
+
+async function fetchFilterOptions() {
+  if (!_filterOptsCache) {
+    try { _filterOptsCache = await safeJsonFetch("/api/filter_options"); }
+    catch { _filterOptsCache = { positions: [], teams: [] }; }
+  }
+  return _filterOptsCache;
+}
+
+function getFiltersFromPanel(containerEl) {
+  if (!containerEl) return { position: "", team: "" };
+  const pos  = containerEl.querySelector(".filter-pos");
+  const team = containerEl.querySelector(".filter-team");
+  return { position: pos ? pos.value : "", team: team ? team.value : "" };
+}
+
+async function initFilterPanel(containerEl, onChange) {
+  if (!containerEl) return;
+  const opts = await fetchFilterOptions();
+  containerEl.innerHTML = `
+    <div class="filter-row">
+      <div class="filter-field">
+        <label class="label">Position</label>
+        <select class="filter-select filter-pos">
+          <option value="">Any position</option>
+          ${opts.positions.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="label">Team</label>
+        <select class="filter-select filter-team">
+          <option value="">Any team</option>
+          ${opts.teams.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("")}
+        </select>
+      </div>
+    </div>`;
+  containerEl.querySelectorAll("select").forEach(sel =>
+    sel.addEventListener("change", () => onChange(getFiltersFromPanel(containerEl)))
+  );
+}
+
+// ============================================================
+// Reusable player search (profile + compare pages)
+// Optionally pass a filterContainerEl — renders filter selects and
+// includes their values in every query; also triggers search on filter change.
+// ============================================================
+function initPlayerSearch(inputEl, suggestionsEl, onSelect, filterContainerEl) {
   if (!inputEl || !suggestionsEl) return;
   let timer = null;
 
   function hide() { suggestionsEl.innerHTML = ""; suggestionsEl.classList.add("hidden"); }
 
+  function buildUrl(q) {
+    const f = getFiltersFromPanel(filterContainerEl);
+    let url = `/api/players?q=${encodeURIComponent(q)}&limit=20`;
+    if (f.position) url += `&position=${encodeURIComponent(f.position)}`;
+    if (f.team)     url += `&team=${encodeURIComponent(f.team)}`;
+    return url;
+  }
+
+  async function doSearch(q) {
+    const f = getFiltersFromPanel(filterContainerEl);
+    if (q.length < 2 && !f.position && !f.team) { hide(); return; }
+    try {
+      const data = await safeJsonFetch(buildUrl(q));
+      if (!data || !data.length) { hide(); return; }
+      suggestionsEl.innerHTML = "";
+      data.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "sugg-item";
+        div.innerHTML = `
+          <div class="sugg-title">${escapeHtml(p.player)}</div>
+          <div class="sugg-sub">${escapeHtml(p.dataset)} · ${escapeHtml(p.player_position || "—")} · ${escapeHtml(p.role_name || "—")}</div>`;
+        div.onclick = () => { inputEl.value = p.player; hide(); onSelect(p); };
+        suggestionsEl.appendChild(div);
+      });
+      suggestionsEl.classList.remove("hidden");
+    } catch { hide(); }
+  }
+
   inputEl.addEventListener("input", () => {
-    const q = inputEl.value.trim();
     if (timer) clearTimeout(timer);
-    if (q.length < 2) { hide(); return; }
-    timer = setTimeout(async () => {
-      try {
-        const data = await safeJsonFetch(`/api/players?q=${encodeURIComponent(q)}&limit=10`);
-        if (!data || !data.length) { hide(); return; }
-        suggestionsEl.innerHTML = "";
-        data.forEach(p => {
-          const div = document.createElement("div");
-          div.className = "sugg-item";
-          div.innerHTML = `
-            <div class="sugg-title">${escapeHtml(p.player)}</div>
-            <div class="sugg-sub">${escapeHtml(p.dataset)} · ${escapeHtml(p.player_position || "—")} · ${escapeHtml(p.role_name || "—")}</div>`;
-          div.onclick = () => { inputEl.value = p.player; hide(); onSelect(p); };
-          suggestionsEl.appendChild(div);
-        });
-        suggestionsEl.classList.remove("hidden");
-      } catch { hide(); }
-    }, 180);
+    timer = setTimeout(() => doSearch(inputEl.value.trim()), 180);
   });
 
   document.addEventListener("click", e => {
     if (!suggestionsEl.contains(e.target) && e.target !== inputEl) hide();
   });
+
+  if (filterContainerEl) {
+    initFilterPanel(filterContainerEl, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => doSearch(inputEl.value.trim()), 0);
+    });
+  }
 }
 
 // ============================================================
@@ -780,6 +844,24 @@ document.addEventListener("click", e => {
 });
 
 if (search) {
+  const discoverFilterPanel = document.getElementById("search-filters");
+
+  async function discoverSearch() {
+    const q = search.value.trim();
+    const f = getFiltersFromPanel(discoverFilterPanel);
+    if (q.length < 2 && !f.position && !f.team) { clearSuggestions(); return; }
+    try {
+      let url = `/api/players?q=${encodeURIComponent(q)}&limit=10`;
+      if (f.position) url += `&position=${encodeURIComponent(f.position)}`;
+      if (f.team)     url += `&team=${encodeURIComponent(f.team)}`;
+      const data = await safeJsonFetch(url);
+      renderSuggestions(data);
+    } catch (err) {
+      showStatus(err.message, true);
+      clearSuggestions();
+    }
+  }
+
   search.addEventListener("input", () => {
     if (selected && search.value.trim() !== selected.player) {
       selected = null;
@@ -788,21 +870,19 @@ if (search) {
     }
   });
 
-  search.addEventListener("input", async () => {
-    const q = search.value.trim();
+  search.addEventListener("input", () => {
     clearStatus();
     if (debounceTimer) clearTimeout(debounceTimer);
-    if (q.length < 2) { clearSuggestions(); return; }
-    debounceTimer = setTimeout(async () => {
-      try {
-        const data = await safeJsonFetch(`/api/players?q=${encodeURIComponent(q)}&limit=10`);
-        renderSuggestions(data);
-      } catch (err) {
-        showStatus(err.message, true);
-        clearSuggestions();
-      }
-    }, 180);
+    debounceTimer = setTimeout(discoverSearch, 180);
   });
+
+  if (discoverFilterPanel) {
+    initFilterPanel(discoverFilterPanel, () => {
+      clearStatus();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(discoverSearch, 0);
+    });
+  }
 
   // Pre-populate from URL params (linked from player profile "Find similar" button)
   const _p = new URLSearchParams(window.location.search);

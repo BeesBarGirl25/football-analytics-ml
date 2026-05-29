@@ -50,10 +50,46 @@ def competitions_page():
     return render_template("competitions.html", active_page="competitions")
 
 
+@app.get("/api/filter_options")
+def filter_options():
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT player_position
+                FROM player
+                WHERE model_version = %s
+                  AND player_position IS NOT NULL AND player_position <> ''
+                ORDER BY player_position
+                """,
+                (MODEL_VERSION,),
+            )
+            positions = [r[0] for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT DISTINCT team
+                FROM player
+                WHERE model_version = %s
+                  AND team IS NOT NULL AND team <> ''
+                ORDER BY team
+                """,
+                (MODEL_VERSION,),
+            )
+            teams = [r[0] for r in cur.fetchall()]
+
+        return jsonify({"positions": positions, "teams": teams})
+    finally:
+        conn.close()
+
+
 @app.get("/api/players")
 def players():
-    q = (request.args.get("q") or "")
-    limit = int(request.args.get("limit", 10))
+    q        = (request.args.get("q") or "")
+    limit    = int(request.args.get("limit", 10))
+    position = (request.args.get("position") or "").strip()
+    team     = (request.args.get("team") or "").strip()
 
     conn = get_conn()
     try:
@@ -65,6 +101,8 @@ def players():
                 FROM player
                 WHERE model_version = %s
                   AND player ILIKE %s
+                  AND (%s = '' OR player_position = %s)
+                  AND (%s = '' OR team = %s)
                 ORDER BY
                   LOWER(player),
                   CASE dataset
@@ -78,7 +116,7 @@ def players():
                   END DESC
                 LIMIT %s
                 """,
-                (MODEL_VERSION, f"%{q}%", limit),
+                (MODEL_VERSION, f"%{q}%", position, position, team, team, limit),
             )
             rows = cur.fetchall()
 

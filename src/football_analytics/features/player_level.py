@@ -162,7 +162,7 @@ def build_player_level_df(events: pd.DataFrame) -> pd.DataFrame:
         passing_feats = calculate_passing_features(g)
         carry_feats   = calculate_carry_actions_features(g)
 
-        # position + name (best-effort)
+        # position + name + team (best-effort)
         if "position" in g.columns and not g["position"].dropna().empty:
             player_position = g["position"].value_counts().idxmax()
         else:
@@ -172,12 +172,22 @@ def build_player_level_df(events: pd.DataFrame) -> pd.DataFrame:
         if "player" in g.columns and g["player"].notna().any():
             player_name = g["player"].dropna().iloc[0]
 
+        team_name = None
+        for _col in ("team", "team_name"):
+            if _col in g.columns:
+                _vals = g[_col].dropna()
+                if not _vals.empty:
+                    _v = _vals.iloc[0]
+                    team_name = _v.get("name") if isinstance(_v, dict) else str(_v)
+                    break
+
         loc = g[g["loc_x"].notna() & g["loc_y"].notna()]
 
         rows.append({
             "player_key": k,
             "player": player_name,
             "player_position": player_position,
+            "team": team_name,
             "mean_x_loc": float(loc["loc_x"].mean()) if not loc.empty else np.nan,
             "mean_y_loc": float(loc["loc_y"].mean()) if not loc.empty else np.nan,
             **occupancies,

@@ -81,7 +81,7 @@ def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
     """
     passing_cols = passing_feature_columns()
 
-    keep_cols = [c for c in ["player_key", "player", "player_position", "dataset"] + passing_cols if c in df_raw.columns]
+    keep_cols = [c for c in ["player_key", "player", "player_position", "team", "dataset"] + passing_cols if c in df_raw.columns]
     df = df_raw[keep_cols].copy()
 
     # ✅ Drop keepers pre-modelling
@@ -103,6 +103,8 @@ def collapse_to_one_profile_per_player(df_raw: pd.DataFrame) -> pd.DataFrame:
     agg = {c: "mean" for c in num_cols}
     agg["player"] = _mode_or_first
     agg["player_position"] = _mode_or_first
+    if "team" in df.columns:
+        agg["team"] = _mode_or_first
 
     out = df.groupby("player_key", as_index=False).agg(agg)
     # ✅ downstream should treat this as a single profile per player

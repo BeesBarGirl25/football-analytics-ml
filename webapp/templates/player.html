@@ -6,9 +6,10 @@
   <div class="panel page-search-panel">
     <div class="search-wrap">
       <label class="label" for="player-search">Search player</label>
-      <input id="player-search" class="input" type="text" placeholder="Type a name to view their profile…" autocomplete="off"/>
+      <input id="player-search" class="input" type="text" placeholder="Type a name, or filter below…" autocomplete="off"/>
       <div id="player-suggestions" class="suggestions hidden"></div>
     </div>
+    <div id="player-filters"></div>
   </div>
   <div id="player-root">
     <div class="profile-loading">Loading profile…</div>
@@ -27,7 +28,8 @@
     initPlayerSearch(
       document.getElementById("player-search"),
       document.getElementById("player-suggestions"),
-      p => { window.location.href = `/player/${encodeURIComponent(p.player_key)}/${encodeURIComponent(p.dataset)}`; }
+      p => { window.location.href = `/player/${encodeURIComponent(p.player_key)}/${encodeURIComponent(p.dataset)}`; },
+      document.getElementById("player-filters")
     );
 
     const root = document.getElementById("player-root");

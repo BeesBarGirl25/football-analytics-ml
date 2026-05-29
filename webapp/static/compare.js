@@ -17,7 +17,8 @@ const COLOR_B = { fill: "rgba(255,185,0,0.15)",   stroke: "rgba(255,185,0,0.90)"
       url.searchParams.set("src_key", p.player_key);
       url.searchParams.set("src_dataset", p.dataset);
       window.location.href = url.toString();
-    }
+    },
+    document.getElementById("cmp-filters-a")
   );
   initPlayerSearch(
     document.getElementById("cmp-search-b"),
@@ -27,7 +28,8 @@ const COLOR_B = { fill: "rgba(255,185,0,0.15)",   stroke: "rgba(255,185,0,0.90)"
       url.searchParams.set("dst_key", p.player_key);
       url.searchParams.set("dst_dataset", p.dataset);
       window.location.href = url.toString();
-    }
+    },
+    document.getElementById("cmp-filters-b")
   );
 
   if (!SRC_KEY || !DST_KEY) {

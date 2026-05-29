@@ -1188,6 +1188,46 @@ summary::-webkit-details-marker{ display: none; }
   margin-bottom: 14px;
 }
 
+/* ============================================================
+   Filter row (position + team selects below a search input)
+   ============================================================ */
+.filter-row{
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-field{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 140px;
+}
+
+.filter-select{
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(12,12,16,0.85);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.35)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+.filter-select:focus{
+  border-color: rgba(0,170,255,0.45);
+  box-shadow: 0 0 0 3px rgba(0,170,255,0.12);
+}
+
 /* Compare search row — two panels flanking a "vs" label */
 .cmp-search-row{
   display: grid;

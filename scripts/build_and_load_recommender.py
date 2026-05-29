@@ -127,6 +127,7 @@ def main():
                             str(r["player_position"]),
                             int(r["role_id"]),
                             str(r["role_name"]),
+                            str(r["team"]) if "team" in r and r["team"] is not None else "",
                         )
                     )
 
@@ -158,13 +159,14 @@ def main():
                     cur,
                     """
                     INSERT INTO player (
-                        model_version, player_key, dataset, player, player_position, role_id, role_name
+                        model_version, player_key, dataset, player, player_position, role_id, role_name, team
                     ) VALUES %s
                     ON CONFLICT (model_version, player_key, dataset) DO UPDATE
                     SET player = EXCLUDED.player,
                         player_position = EXCLUDED.player_position,
                         role_id = EXCLUDED.role_id,
-                        role_name = EXCLUDED.role_name
+                        role_name = EXCLUDED.role_name,
+                        team = EXCLUDED.team
                     """,
                     player_rows,
                 )

@@ -15,6 +15,7 @@
       player_position TEXT,
       role_id INT,
       role_name TEXT,
+      team TEXT,
       PRIMARY KEY (model_version, player_key, dataset)
     );
     
