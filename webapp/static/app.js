@@ -601,7 +601,9 @@ function initPlayerSearch(inputEl, suggestionsEl, onSelect, filterContainerEl) {
 
   function buildUrl(q) {
     const f = getFiltersFromPanel(filterContainerEl);
-    let url = `/api/players?q=${encodeURIComponent(q)}&limit=20`;
+    const hasFilter = !!(f.position || f.team);
+    const limit = hasFilter && q.length < 2 ? 100 : 20;
+    let url = `/api/players?q=${encodeURIComponent(q)}&limit=${limit}`;
     if (f.position) url += `&position=${encodeURIComponent(f.position)}`;
     if (f.team)     url += `&team=${encodeURIComponent(f.team)}`;
     return url;
@@ -849,9 +851,12 @@ if (search) {
   async function discoverSearch() {
     const q = search.value.trim();
     const f = getFiltersFromPanel(discoverFilterPanel);
-    if (q.length < 2 && !f.position && !f.team) { clearSuggestions(); return; }
+    const hasFilter = !!(f.position || f.team);
+    if (q.length < 2 && !hasFilter) { clearSuggestions(); return; }
+    // Use a higher limit when browsing by filter with no name typed
+    const limit = hasFilter && q.length < 2 ? 100 : 10;
     try {
-      let url = `/api/players?q=${encodeURIComponent(q)}&limit=10`;
+      let url = `/api/players?q=${encodeURIComponent(q)}&limit=${limit}`;
       if (f.position) url += `&position=${encodeURIComponent(f.position)}`;
       if (f.team)     url += `&team=${encodeURIComponent(f.team)}`;
       const data = await safeJsonFetch(url);
