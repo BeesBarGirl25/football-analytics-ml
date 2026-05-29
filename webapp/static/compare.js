@@ -1,6 +1,5 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
-// Clockwise from top — must match fill_trait_dictionary RADAR_CATEGORY_ORDER
-const RADAR_CATS = ["Volume", "Progression", "Creativity", "Width", "Distribution", "Style"];
+// RADAR_CATS is defined in app.js (shared)
 
 const COLOR_A = { fill: "rgba(0,170,255,0.18)",  stroke: "rgba(0,170,255,0.90)",  text: "#00aaff" };
 const COLOR_B = { fill: "rgba(255,185,0,0.15)",   stroke: "rgba(255,185,0,0.90)",  text: "#ffb900" };
@@ -8,26 +7,57 @@ const COLOR_B = { fill: "rgba(255,185,0,0.15)",   stroke: "rgba(255,185,0,0.90)"
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
   const root = document.getElementById("compare-root");
+
+  // Wire up swap-player search inputs
+  initPlayerSearch(
+    document.getElementById("cmp-search-a"),
+    document.getElementById("cmp-suggestions-a"),
+    p => {
+      const url = new URL(window.location);
+      url.searchParams.set("src_key", p.player_key);
+      url.searchParams.set("src_dataset", p.dataset);
+      window.location.href = url.toString();
+    }
+  );
+  initPlayerSearch(
+    document.getElementById("cmp-search-b"),
+    document.getElementById("cmp-suggestions-b"),
+    p => {
+      const url = new URL(window.location);
+      url.searchParams.set("dst_key", p.player_key);
+      url.searchParams.set("dst_dataset", p.dataset);
+      window.location.href = url.toString();
+    }
+  );
+
   if (!SRC_KEY || !DST_KEY) {
-    root.innerHTML = `<div class="profile-error">Missing player parameters.</div>`;
+    root.innerHTML = `
+      <div class="coming-soon-card" style="margin-top:20px;">
+        <div class="coming-soon-title" style="font-size:16px;color:rgba(255,255,255,0.50);">
+          Search for two players above to compare them
+        </div>
+      </div>`;
     return;
   }
 
   try {
-    // Fetch both profiles in parallel (topk=200 to get all features)
     const [profA, profB] = await Promise.all([
       safeJsonFetch(`/api/player_profile?player_key=${encodeURIComponent(SRC_KEY)}&dataset=${encodeURIComponent(SRC_DATASET)}&topk=200`),
       safeJsonFetch(`/api/player_profile?player_key=${encodeURIComponent(DST_KEY)}&dataset=${encodeURIComponent(DST_DATASET)}&topk=200`),
     ]);
 
-    // Bulk-load trait meta for everything we'll render
-    const allTraits = [
+    await ensureTraitMeta([
       ...(profA.top_traits || []).map(t => t.trait),
       ...(profB.top_traits || []).map(t => t.trait),
-    ];
-    await ensureTraitMeta(allTraits);
+    ]);
 
     document.title = `${profA.player} vs ${profB.player}`;
+
+    // Populate search inputs with loaded names
+    const searchA = document.getElementById("cmp-search-a");
+    const searchB = document.getElementById("cmp-search-b");
+    if (searchA) searchA.value = profA.player || "";
+    if (searchB) searchB.value = profB.player || "";
 
     root.innerHTML = buildCompareHtml(profA, profB);
     attachExpandHandlers();
@@ -300,4 +330,4 @@ function attachExpandHandlers() {
   });
 }
 
-// renderFullProfileInto is defined in app.js (shared with player.html)
+// buildSinglePlayerRadarSvg, initPlayerSearch, etc. are defined in app.js

@@ -3,6 +3,13 @@
 
 {% block content %}
 <div class="page">
+  <div class="panel page-search-panel">
+    <div class="search-wrap">
+      <label class="label" for="player-search">Search player</label>
+      <input id="player-search" class="input" type="text" placeholder="Type a name to view their profile…" autocomplete="off"/>
+      <div id="player-suggestions" class="suggestions hidden"></div>
+    </div>
+  </div>
   <div id="player-root">
     <div class="profile-loading">Loading profile…</div>
   </div>
@@ -17,6 +24,12 @@
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 <script>
   (async () => {
+    initPlayerSearch(
+      document.getElementById("player-search"),
+      document.getElementById("player-suggestions"),
+      p => { window.location.href = `/player/${encodeURIComponent(p.player_key)}/${encodeURIComponent(p.dataset)}`; }
+    );
+
     const root = document.getElementById("player-root");
     try {
       const prof = await safeJsonFetch(

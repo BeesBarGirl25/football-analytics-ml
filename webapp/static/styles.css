@@ -59,6 +59,9 @@ body{
   align-items: end;
   overflow: visible; /* ✅ */
 }
+.controls-simple{
+  grid-template-columns: 1fr auto;
+}
 
 .label{
   display: block;
@@ -1014,4 +1017,201 @@ summary::-webkit-details-marker{ display: none; }
   }
   .profile-baseline-note{ text-align: left; }
   .profile-full-name{ font-size: 20px; }
+}
+
+/* ============================================================
+   Profile radar wrap
+   ============================================================ */
+.profile-radar-wrap{
+  display: flex;
+  justify-content: center;
+  margin: 0 0 20px;
+}
+.profile-radar-wrap .radar-svg{
+  max-width: 320px;
+  width: 100%;
+}
+
+/* ============================================================
+   Highlights block (strengths / weaknesses)
+   ============================================================ */
+.highlights-block{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+}
+
+.highlights-heading{
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 10px;
+}
+.hl-pos-heading{ color: rgba(120,255,160,0.70); }
+.hl-neg-heading{ color: rgba(255,140,140,0.70); }
+
+.hl-item{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.hl-item:last-child{ border-bottom: none; }
+
+.hl-label{
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hl-pct{
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.hl-strength .hl-pct{ color: rgba(120,255,160,0.90); }
+.hl-weakness .hl-pct{ color: rgba(255,140,140,0.90); }
+
+.hl-none{
+  font-size: 13px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+@media (max-width: 560px){
+  .highlights-block{ grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   Category accordion (full profile page)
+   ============================================================ */
+.cat-accordion{
+  display: grid;
+  gap: 6px;
+}
+
+.cat-acc-section{
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.cat-acc-header{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.cat-acc-header:hover{ background: rgba(255,255,255,0.03); }
+
+.cat-acc-left{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+}
+
+.cat-acc-name{
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255,255,255,0.80);
+}
+
+.cat-acc-right{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cat-acc-track{
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cat-acc-fill{
+  height: 100%;
+  border-radius: 4px;
+  transition: width 300ms ease;
+}
+.cat-fill-high{ background: linear-gradient(90deg, rgba(120,255,160,0.50), rgba(120,255,160,0.90)); }
+.cat-fill-mid { background: linear-gradient(90deg, rgba(0,170,255,0.50), rgba(0,170,255,0.90));   }
+.cat-fill-low { background: linear-gradient(90deg, rgba(255,140,140,0.90), rgba(255,140,140,0.50)); }
+
+.cat-acc-pct{
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  white-space: nowrap;
+  min-width: 38px;
+  text-align: right;
+}
+
+.cat-acc-chevron{
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  min-width: 14px;
+  text-align: center;
+}
+
+.cat-acc-body{
+  padding: 0 14px 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.cat-acc-body.hidden{ display: none; }
+
+/* ============================================================
+   Page-level search panel (player + compare pages)
+   ============================================================ */
+.page-search-panel{
+  margin-bottom: 14px;
+}
+
+/* Compare search row — two panels flanking a "vs" label */
+.cmp-search-row{
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.cmp-search-panel{
+  padding: 12px 14px;
+}
+
+.cmp-vs-static{
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.30);
+  text-align: center;
+  padding-bottom: 12px;
+}
+
+@media (max-width: 700px){
+  .cmp-search-row{
+    grid-template-columns: 1fr;
+  }
+  .cmp-vs-static{ display: none; }
 }

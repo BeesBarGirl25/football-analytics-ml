@@ -6,9 +6,24 @@
 
 {% block content %}
 <div class="page">
-  <div id="compare-root">
-    <div class="profile-loading">Loading comparison…</div>
+  <div class="cmp-search-row">
+    <div class="panel cmp-search-panel">
+      <label class="label" for="cmp-search-a">Player A</label>
+      <div class="search-wrap">
+        <input id="cmp-search-a" class="input" type="text" placeholder="Search player A…" autocomplete="off"/>
+        <div id="cmp-suggestions-a" class="suggestions hidden"></div>
+      </div>
+    </div>
+    <div class="cmp-vs-static">vs</div>
+    <div class="panel cmp-search-panel">
+      <label class="label" for="cmp-search-b">Player B</label>
+      <div class="search-wrap">
+        <input id="cmp-search-b" class="input" type="text" placeholder="Search player B…" autocomplete="off"/>
+        <div id="cmp-suggestions-b" class="suggestions hidden"></div>
+      </div>
+    </div>
   </div>
+  <div id="compare-root"></div>
 </div>
 {% endblock %}
 

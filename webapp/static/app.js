@@ -16,6 +16,8 @@ const sectionResults = document.getElementById("section-results");
 let selected      = null;
 let debounceTimer = null;
 
+const RADAR_CATS = ["Volume", "Progression", "Creativity", "Width", "Distribution", "Style"];
+
 // Bulk trait metadata cache: trait key → {display_name, description, category, higher_means}
 const TRAIT_META = new Map();
 
@@ -373,15 +375,9 @@ function renderFullProfile(prof) {
   patchRenderedTraitElements();
 }
 
-// Render a full profile into any element (used by player.html and compare.js)
+// Render a full profile into any element (used by player.html)
 function renderFullProfileInto(el, prof) {
   const top = prof.top_traits || [];
-  const { byCategory, uncategorized } = groupByCategory(top);
-
-  const sections = [
-    ...Object.entries(byCategory).map(([cat, traits]) => traitSectionHtml(cat, traits, "full")),
-    ...(uncategorized.length ? [traitSectionHtml("Other", uncategorized, "full")] : []),
-  ].join("");
 
   el.innerHTML = `
     <div class="profile-full-header">
@@ -393,15 +389,195 @@ function renderFullProfileInto(el, prof) {
           <span class="chip">${escapeHtml(prof.role_name || "—")}</span>
         </div>
       </div>
-      <div class="profile-baseline-note">Traits ranked by deviation from role peers</div>
+      <div class="profile-baseline-note">Percentiles vs role peers</div>
     </div>
-    ${categorySummaryHtml(prof.category_summary || [])}
-    <div class="profile-section-label">Standout traits vs role peers</div>
-    <div class="trait-sections">
-      ${sections || `<div class="profile-note">No trait data available.</div>`}
-    </div>`;
+    <div class="profile-radar-wrap">
+      ${buildSinglePlayerRadarSvg(prof.category_summary || [])}
+    </div>
+    ${buildHighlightsHtml(top)}
+    <div class="profile-section-label" style="margin-top:24px;">Detail by category</div>
+    ${buildCategoryAccordionHtml(top, prof.category_summary || [])}`;
 
   patchRenderedTraitElements();
+  attachCategoryAccordionHandlers(el);
+}
+
+// ============================================================
+// Single-player radar SVG
+// ============================================================
+function buildSinglePlayerRadarSvg(categorySummary) {
+  const N = RADAR_CATS.length;
+  const CX = 200, CY = 200, R = 140, SIZE = 400, LABEL_PAD = 28;
+  const STROKE = "rgba(0,170,255,0.90)";
+  const FILL   = "rgba(0,170,255,0.15)";
+
+  const angles = RADAR_CATS.map((_, i) => -Math.PI / 2 + (2 * Math.PI * i) / N);
+  const catMap = {};
+  for (const c of (categorySummary || [])) catMap[c.category] = c;
+
+  function pt(v, i) { return { x: CX + R * v * Math.cos(angles[i]), y: CY + R * v * Math.sin(angles[i]) }; }
+  function polyStr(vals) {
+    return vals.map((v, i) => { const p = pt(v, i); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(" ");
+  }
+
+  const grid = [0.25, 0.5, 0.75, 1.0].map(lvl => {
+    const pts = angles.map((_, i) => { const p = pt(lvl, i); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(" ");
+    const op  = lvl === 1.0 ? "0.18" : lvl === 0.5 ? "0.14" : "0.08";
+    return `<polygon points="${pts}" fill="none" stroke="rgba(255,255,255,${op})" stroke-width="${lvl === 0.5 ? 1.5 : 1}"/>`;
+  }).join("");
+
+  const spokes = angles.map(a =>
+    `<line x1="${CX}" y1="${CY}" x2="${(CX + R * Math.cos(a)).toFixed(1)}" y2="${(CY + R * Math.sin(a)).toFixed(1)}" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>`
+  ).join("");
+
+  const labels = RADAR_CATS.map((cat, i) => {
+    const a = angles[i];
+    const x = (CX + (R + LABEL_PAD) * Math.cos(a)).toFixed(1);
+    const y = (CY + (R + LABEL_PAD) * Math.sin(a)).toFixed(1);
+    const anchor = Math.cos(a) > 0.15 ? "start" : Math.cos(a) < -0.15 ? "end" : "middle";
+    const dy = Math.sin(a) > 0.15 ? "1em" : Math.sin(a) < -0.15 ? "-0.2em" : "0.35em";
+    return `<text x="${x}" y="${y}" text-anchor="${anchor}" dy="${dy}" fill="rgba(255,255,255,0.60)" font-size="12" font-family="ui-sans-serif,system-ui">${escapeHtml(cat)}</text>`;
+  }).join("");
+
+  const values = RADAR_CATS.map(cat => {
+    const d = catMap[cat];
+    return d ? Math.max(0.05, Math.min(1, percentileFromZ(d.mean_z) / 100)) : 0.5;
+  });
+
+  const dots = values.map((v, i) => {
+    const p = pt(v, i);
+    return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${STROKE}"/>`;
+  }).join("");
+
+  return `
+    <svg viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg" class="radar-svg">
+      ${grid}${spokes}
+      <polygon points="${polyStr(values)}" fill="${FILL}" stroke="${STROKE}" stroke-width="2" stroke-linejoin="round"/>
+      ${dots}${labels}
+    </svg>`;
+}
+
+// ============================================================
+// Profile highlights — top 3 strengths / weaknesses
+// ============================================================
+function buildHighlightsHtml(top_traits) {
+  const traits = top_traits || [];
+  const pos = traits.filter(t => Number(t.z) >= 0).slice(0, 3);
+  const neg = traits.filter(t => Number(t.z) <  0).slice(0, 3);
+
+  function item(t, cls) {
+    const label = (t.display_name && t.display_name.trim()) ? t.display_name : prettyFeatureName(t.trait);
+    const pct   = percentileFromZ(Number(t.z));
+    const tip   = escapeHtml(tooltipForTrait(t.trait) || "");
+    return `
+      <div class="hl-item ${cls}">
+        <span class="hl-label trait" data-trait="${escapeHtml(t.trait)}" title="${tip}">${escapeHtml(label)}</span>
+        <span class="hl-pct">${pct}th</span>
+      </div>`;
+  }
+
+  return `
+    <div class="highlights-block">
+      <div class="highlights-col">
+        <div class="highlights-heading hl-pos-heading">▲ Strengths</div>
+        ${pos.length ? pos.map(t => item(t, "hl-strength")).join("") : `<div class="hl-none">—</div>`}
+      </div>
+      <div class="highlights-col">
+        <div class="highlights-heading hl-neg-heading">▼ Weaknesses</div>
+        ${neg.length ? neg.map(t => item(t, "hl-weakness")).join("") : `<div class="hl-none">—</div>`}
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// Category accordion (full profile page)
+// ============================================================
+function buildCategoryAccordionHtml(top_traits, categorySummary) {
+  const traitsByCat = {};
+  for (const t of (top_traits || [])) {
+    const key = t.category || "Other";
+    (traitsByCat[key] = traitsByCat[key] || []).push(t);
+  }
+  const cats = [...(categorySummary || [])].sort((a, b) => Math.abs(b.mean_z) - Math.abs(a.mean_z));
+
+  return `<div class="cat-accordion">${cats.map(c => {
+    const z    = Number(c.mean_z);
+    const pct  = percentileFromZ(z);
+    const tier = tierFromZ(z);
+    const fill = pct >= 65 ? "cat-fill-high" : pct >= 35 ? "cat-fill-mid" : "cat-fill-low";
+    const rows = traitsByCat[c.category] || [];
+    return `
+      <div class="cat-acc-section">
+        <button class="cat-acc-header" aria-expanded="false">
+          <div class="cat-acc-left">
+            <span class="cat-acc-name">${escapeHtml(c.category)}</span>
+            <span class="tier-badge ${tier.cls} tier-sm">${tier.label}</span>
+          </div>
+          <div class="cat-acc-right">
+            <div class="cat-acc-track">
+              <div class="cat-acc-fill ${fill}" style="width:${Math.max(1, pct)}%;"></div>
+            </div>
+            <span class="cat-acc-pct">${pct}th</span>
+            <span class="cat-acc-chevron" aria-hidden="true">↓</span>
+          </div>
+        </button>
+        <div class="cat-acc-body hidden">
+          <div class="trait-section-items">
+            ${rows.map(t => traitRowHtml(t, "full")).join("") || `<div class="profile-note">No trait data for this category.</div>`}
+          </div>
+        </div>
+      </div>`;
+  }).join("")}</div>`;
+}
+
+function attachCategoryAccordionHandlers(root) {
+  (root || document).querySelectorAll(".cat-acc-header").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const section = btn.closest(".cat-acc-section");
+      const body    = section.querySelector(".cat-acc-body");
+      const open    = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", String(!open));
+      section.querySelector(".cat-acc-chevron").textContent = open ? "↓" : "↑";
+      body.classList.toggle("hidden", open);
+    });
+  });
+}
+
+// ============================================================
+// Reusable player search (profile + compare pages)
+// ============================================================
+function initPlayerSearch(inputEl, suggestionsEl, onSelect) {
+  if (!inputEl || !suggestionsEl) return;
+  let timer = null;
+
+  function hide() { suggestionsEl.innerHTML = ""; suggestionsEl.classList.add("hidden"); }
+
+  inputEl.addEventListener("input", () => {
+    const q = inputEl.value.trim();
+    if (timer) clearTimeout(timer);
+    if (q.length < 2) { hide(); return; }
+    timer = setTimeout(async () => {
+      try {
+        const data = await safeJsonFetch(`/api/players?q=${encodeURIComponent(q)}&limit=10`);
+        if (!data || !data.length) { hide(); return; }
+        suggestionsEl.innerHTML = "";
+        data.forEach(p => {
+          const div = document.createElement("div");
+          div.className = "sugg-item";
+          div.innerHTML = `
+            <div class="sugg-title">${escapeHtml(p.player)}</div>
+            <div class="sugg-sub">${escapeHtml(p.dataset)} · ${escapeHtml(p.player_position || "—")} · ${escapeHtml(p.role_name || "—")}</div>`;
+          div.onclick = () => { inputEl.value = p.player; hide(); onSelect(p); };
+          suggestionsEl.appendChild(div);
+        });
+        suggestionsEl.classList.remove("hidden");
+      } catch { hide(); }
+    }, 180);
+  });
+
+  document.addEventListener("click", e => {
+    if (!suggestionsEl.contains(e.target) && e.target !== inputEl) hide();
+  });
 }
 
 // ============================================================
@@ -600,66 +776,82 @@ function showStatus(msg, isError = false) {
 function clearStatus() { statusBox.classList.add("hidden"); statusBox.textContent = ""; }
 
 document.addEventListener("click", e => {
-  if (!suggestions.contains(e.target) && e.target !== search) clearSuggestions();
+  if (suggestions && !suggestions.contains(e.target) && e.target !== search) clearSuggestions();
 });
 
-search.addEventListener("input", () => {
-  // If user edits after selecting, clear selection + collapse profile
-  if (selected && search.value.trim() !== selected.player) {
-    selected = null;
-    setView("landing");
-    profileFullEl.innerHTML = "";
-  }
-});
-
-search.addEventListener("input", async () => {
-  const q = search.value.trim();
-  clearStatus();
-  if (debounceTimer) clearTimeout(debounceTimer);
-  if (q.length < 2) { clearSuggestions(); return; }
-  debounceTimer = setTimeout(async () => {
-    try {
-      const data = await safeJsonFetch(`/api/players?q=${encodeURIComponent(q)}&limit=10`);
-      renderSuggestions(data);
-    } catch (err) {
-      showStatus(err.message, true);
-      clearSuggestions();
+if (search) {
+  search.addEventListener("input", () => {
+    if (selected && search.value.trim() !== selected.player) {
+      selected = null;
+      setView("landing");
+      if (profileFullEl) profileFullEl.innerHTML = "";
     }
-  }, 180);
-});
+  });
+
+  search.addEventListener("input", async () => {
+    const q = search.value.trim();
+    clearStatus();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    if (q.length < 2) { clearSuggestions(); return; }
+    debounceTimer = setTimeout(async () => {
+      try {
+        const data = await safeJsonFetch(`/api/players?q=${encodeURIComponent(q)}&limit=10`);
+        renderSuggestions(data);
+      } catch (err) {
+        showStatus(err.message, true);
+        clearSuggestions();
+      }
+    }, 180);
+  });
+
+  // Pre-populate from URL params (linked from player profile "Find similar" button)
+  const _p = new URLSearchParams(window.location.search);
+  const _k = _p.get("src_key"), _d = _p.get("src_dataset");
+  if (_k && _d) {
+    safeJsonFetch(`/api/player_profile?player_key=${encodeURIComponent(_k)}&dataset=${encodeURIComponent(_d)}&topk=1`)
+      .then(prof => {
+        if (!prof || !prof.player) return;
+        selected = { player_key: _k, dataset: _d, player: prof.player, role_name: prof.role_name, player_position: prof.player_position };
+        search.value = prof.player;
+        loadAndRenderFullProfile(_k, _d);
+        setView("profile");
+      }).catch(() => {});
+  }
+}
 
 // ============================================================
 // Find Similar button
 // ============================================================
-goBtn.addEventListener("click", async () => {
-  clearStatus();
-  if (!selected) { showStatus("Pick a player from the dropdown first", true); return; }
+if (goBtn) {
+  goBtn.addEventListener("click", async () => {
+    clearStatus();
+    if (!selected) { showStatus("Pick a player from the dropdown first", true); return; }
 
-  const top_n     = parseInt(topNInput?.value || "10", 10);
-  const diff_topk = parseInt(diffTopKInput?.value || "8", 10);
-  showStatus("Computing recommendations…");
-  resetSidebar();
+    const top_n     = parseInt(topNInput?.value || "10", 10);
+    const diff_topk = parseInt(diffTopKInput?.value || "8", 10);
+    showStatus("Computing recommendations…");
+    resetSidebar();
 
-  try {
-    const payload = await safeJsonFetch("/api/recommend", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ player_key: selected.player_key, dataset: selected.dataset, top_n, diff_topk }),
-    });
+    try {
+      const payload = await safeJsonFetch("/api/recommend", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ player_key: selected.player_key, dataset: selected.dataset, top_n, diff_topk }),
+      });
 
-    // Bulk-fetch trait meta for all features about to render
-    const featSet = new Set();
-    (payload.results || []).forEach(r => {
-      (r.biggest_differences || []).forEach(x => featSet.add(x.feature));
-      (r.greatest_similarities || []).forEach(x => featSet.add(x.feature));
-    });
-    await ensureTraitMeta([...featSet]);
+      const featSet = new Set();
+      (payload.results || []).forEach(r => {
+        (r.biggest_differences || []).forEach(x => featSet.add(x.feature));
+        (r.greatest_similarities || []).forEach(x => featSet.add(x.feature));
+      });
+      await ensureTraitMeta([...featSet]);
 
-    renderResults(payload);
-    setView("results");
-    patchRenderedTraitElements();
-    showStatus(`Found ${payload.results?.length || 0} similar players.`);
-  } catch (err) {
-    showStatus(err.message, true);
-  }
-});
+      renderResults(payload);
+      setView("results");
+      patchRenderedTraitElements();
+      showStatus(`Found ${payload.results?.length || 0} similar players.`);
+    } catch (err) {
+      showStatus(err.message, true);
+    }
+  });
+}
