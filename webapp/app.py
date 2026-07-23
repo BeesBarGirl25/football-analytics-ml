@@ -1,5 +1,9 @@
 import os
+import re
+import time
 import traceback
+import urllib.request
+import xml.etree.ElementTree as ET
 
 import psycopg2
 from flask import Flask, render_template, request, jsonify
@@ -12,9 +16,80 @@ if not DATABASE_URL:
 
 app = Flask(__name__)
 
+# ── Substack RSS ──────────────────────────────────────────────────────────────
+_RSS_URL = "https://betweenthelinesfc.substack.com/feed"
+_RSS_TTL = 1800  # 30 minutes
+_rss_cache: dict = {"data": None, "ts": 0.0}
+
+def _parse_rss_date(raw: str) -> str:
+    """Convert RSS pubDate ('Thu, 10 Jul 2025 12:00:00 +0000') → 'Jul 10, 2025'."""
+    try:
+        from email.utils import parsedate
+        from calendar import month_abbr
+        t = parsedate(raw)
+        if t:
+            return f"{month_abbr[t[1]]} {t[2]}, {t[0]}"
+    except Exception:
+        pass
+    return raw[:16] if raw else ""
+
+def fetch_posts(max_items: int = 20) -> list[dict]:
+    now = time.time()
+    if _rss_cache["data"] is not None and now - _rss_cache["ts"] < _RSS_TTL:
+        return _rss_cache["data"][:max_items]
+    try:
+        req = urllib.request.Request(_RSS_URL, headers={"User-Agent": "football-analytics/1.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            xml_data = resp.read()
+        root = ET.fromstring(xml_data)
+        channel = root.find("channel")
+        items = []
+        for item in (channel.findall("item") if channel is not None else []):
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub_date = _parse_rss_date((item.findtext("pubDate") or "").strip())
+            raw_desc = item.findtext("description") or ""
+            excerpt = re.sub(r"<[^>]+>", "", raw_desc).strip()[:220]
+            if excerpt and not excerpt.endswith((".", "?", "!")):
+                excerpt = excerpt.rsplit(" ", 1)[0] + "…"
+            items.append({"title": title, "link": link, "pub_date": pub_date, "excerpt": excerpt})
+        _rss_cache["data"] = items
+        _rss_cache["ts"] = now
+        return items[:max_items]
+    except Exception:
+        return (_rss_cache["data"] or [])[:max_items]
 
 def get_conn():
     return psycopg2.connect(DATABASE_URL)
+
+
+# ── Recently viewed table (lazy-init) ────────────────────────────────────────
+_rv_ready = False
+
+def _ensure_rv_table():
+    global _rv_ready
+    if _rv_ready:
+        return
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS recently_viewed (
+                    player_key  TEXT NOT NULL,
+                    dataset     TEXT NOT NULL,
+                    player_name TEXT NOT NULL,
+                    viewed_at   TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS rv_viewed_at_idx
+                ON recently_viewed(viewed_at DESC)
+            """)
+        conn.commit()
+        conn.close()
+        _rv_ready = True
+    except Exception:
+        pass
 
 
 @app.get("/")
@@ -48,6 +123,51 @@ def leaderboard_page():
 @app.get("/competitions")
 def competitions_page():
     return render_template("competitions.html", active_page="competitions")
+
+
+@app.get("/writing")
+def writing_page():
+    posts = fetch_posts(max_items=20)
+    return render_template("writing.html", active_page="writing", posts=posts)
+
+
+@app.get("/api/posts")
+def api_posts():
+    limit = min(int(request.args.get("limit", 3)), 20)
+    return jsonify(fetch_posts(max_items=limit))
+
+
+@app.get("/api/recently_viewed")
+def api_recently_viewed():
+    limit = min(int(request.args.get("limit", 6)), 20)
+    _ensure_rv_table()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT player_key, dataset, player_name, MAX(viewed_at) AS last_viewed
+                FROM recently_viewed
+                GROUP BY player_key, dataset, player_name
+                ORDER BY last_viewed DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        return jsonify(
+            [
+                {
+                    "player_key": r[0],
+                    "dataset": r[1],
+                    "player": r[2],
+                    "viewed_at": r[3].isoformat() if r[3] else None,
+                }
+                for r in rows
+            ]
+        )
+    finally:
+        conn.close()
 
 
 @app.get("/api/filter_options")
@@ -515,6 +635,7 @@ def player_profile():
     if not player_key or not dataset:
         return jsonify({"error": "player_key and dataset are required"}), 400
 
+    _ensure_rv_table()
     conn = get_conn()
     try:
         with conn.cursor() as cur:
@@ -532,6 +653,16 @@ def player_profile():
                 return jsonify({"error": "Player not found"}), 404
 
             player_name, pos, role_id, role_name = meta
+
+            # track view
+            try:
+                cur.execute(
+                    "INSERT INTO recently_viewed (player_key, dataset, player_name) VALUES (%s, %s, %s)",
+                    (player_key, dataset, player_name),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
 
             # 2) feats list (ordered)
             cur.execute("SELECT feats FROM model_version WHERE model_version=%s", (MODEL_VERSION,))

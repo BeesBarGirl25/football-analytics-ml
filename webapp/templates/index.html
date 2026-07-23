@@ -43,9 +43,93 @@
       </aside>
     </div>
   </section>
+
+  <!-- ── Homepage feeds ─────────────────────────────────────────────────── -->
+  <section id="section-feeds" class="feeds-section">
+    <div class="feeds-grid">
+
+      <div class="feed-col">
+        <div class="feed-header">
+          <h2 class="feed-title">Latest Writing</h2>
+          <a href="/writing" class="feed-more">All posts →</a>
+        </div>
+        <div id="feed-posts" class="feed-items">
+          <div class="feed-loading">Loading…</div>
+        </div>
+      </div>
+
+      <div class="feed-col">
+        <div class="feed-header">
+          <h2 class="feed-title">Recently Searched</h2>
+        </div>
+        <div id="feed-recent" class="feed-items">
+          <div class="feed-loading">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='app.js') }}"></script>
+<script>
+(function () {
+  const DATASET_LABELS = {
+    wc2018: "WC 2018", wc2022: "WC 2022",
+    euro2020: "EURO 2020", euro2024: "EURO 2024",
+    afcon2023: "AFCON 2023", copa2024: "Copa 2024",
+  };
+
+  function renderPosts(posts) {
+    const el = document.getElementById("feed-posts");
+    if (!posts.length) {
+      el.innerHTML = '<p class="feed-empty">No posts found.</p>';
+      return;
+    }
+    el.innerHTML = posts.map(p => `
+      <a class="feed-article-card" href="${p.link}" target="_blank" rel="noopener">
+        <div class="feed-article-date">${p.pub_date}</div>
+        <div class="feed-article-title">${p.title}</div>
+        ${p.excerpt ? `<div class="feed-article-excerpt">${p.excerpt}</div>` : ""}
+      </a>
+    `).join("");
+  }
+
+  function renderRecent(players) {
+    const el = document.getElementById("feed-recent");
+    if (!players.length) {
+      el.innerHTML = '<p class="feed-empty">No recent searches yet — try looking up a player above.</p>';
+      return;
+    }
+    el.innerHTML = players.map(p => {
+      const url = `/player/${encodeURIComponent(p.player_key)}/${encodeURIComponent(p.dataset)}`;
+      const label = DATASET_LABELS[p.dataset] || p.dataset;
+      return `
+        <a class="feed-player-card" href="${url}">
+          <div class="feed-player-name">${p.player}</div>
+          <div class="feed-player-meta">${label}</div>
+        </a>
+      `;
+    }).join("");
+  }
+
+  fetch("/api/posts?limit=3")
+    .then(r => r.json()).then(renderPosts)
+    .catch(() => { document.getElementById("feed-posts").innerHTML = '<p class="feed-empty">Could not load posts.</p>'; });
+
+  fetch("/api/recently_viewed?limit=6")
+    .then(r => r.json()).then(renderRecent)
+    .catch(() => { document.getElementById("feed-recent").innerHTML = '<p class="feed-empty">Could not load recent searches.</p>'; });
+
+  // Hide feeds when results are visible
+  const feedsEl = document.getElementById("section-feeds");
+  const observer = new MutationObserver(() => {
+    const resultsVisible = !document.getElementById("section-results").classList.contains("hidden");
+    feedsEl.style.display = resultsVisible ? "none" : "";
+  });
+  observer.observe(document.getElementById("section-results"), { attributes: true, attributeFilter: ["class"] });
+})();
+</script>
 {% endblock %}
